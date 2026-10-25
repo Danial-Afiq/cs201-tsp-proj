@@ -21,36 +21,45 @@ The project uses **one modified TSP problem and two different solutions**:
 
 ## Inputs, output and scoring
 
-**Inputs:** a chosen depot; selected GeoNames cities; distance matrix; daytime/nighttime safety scores; departure time; assumed speed and delivery duration; safety weight `lambda`; beam width `k` for Beam Search.
+**Inputs:** a chosen depot; selected GeoNames cities; distance matrix; **one base danger score (0–100) per city**; departure time; fixed assumed speed of **60 km/h**; safety weight `lambda`; and beam width `k` for Beam Search.
 
-**Output:** a complete tour `depot -> each delivery city exactly once -> depot`, with total kilometres, danger score and combined cost.
+**Output:** a complete tour `depot -> each delivery city exactly once -> depot`, with total kilometres, time-dependent danger score and combined cost.
 
-For each city:
+### Agreed assumptions (apply identically to both algorithms)
+
+| # | Assumption | How we implement it |
+| --- | --- | --- |
+| 1 | Crime risk is higher at night | A city's nighttime danger is **1.5 ×** its daytime/base danger score. This is **our assumption**, not a measured effect. |
+| 2 | Each city has a different danger score | Assign each city a **base danger score from 0–100**, using available crime data or **clearly labelled simulated values**. |
+| 3 | Day and night have fixed hours | **Day:** 07:00–18:59; **Night:** 19:00–06:59 (Malaysia local time). |
+| 4 | Driver travels at a constant speed | Use **60 km/h** for all trips to estimate arrival times. |
+| 5 | Time spent delivering in each city is negligible | **0 minutes per stop**; the driver leaves immediately upon arrival. |
+| 6 | Driver cannot wait until morning | **No waiting:** the driver immediately continues to the next city, even at night. |
+| 7 | Safety depends on city and arrival time | Apply a risk score **when arriving at each city**, not for individual roads or travel legs. |
+
+### Shared scoring model
 
 ```text
-dayDanger   = 100 - daySafety
-nightDanger = 100 - nightSafety
-```
+baseDanger[city]  = input value from 0 to 100
+nightDanger[city] = 1.5 * baseDanger[city]
+arrivalDanger     = baseDanger[city] (day) OR nightDanger[city] (night)
 
-Determine the driver's arrival time at each stop from the previous departure time and `distance / assumedSpeed`, adding the delivery/service duration before leaving. The danger assigned to that stop depends on whether **its arrival occurs in daytime or nighttime**.
+travelTimeHours = distanceKm / 60
+arrivalTimeNext = arrivalTimeCurrent + travelTimeHours
+# delivery time = 0, so departureTimeNext = arrivalTimeNext
 
-```text
-D = distance of all legs, including return to depot
-R = sum of arrival-time danger at delivery cities (not depot on return)
+D = distance of every leg, including the final return to depot
+R = sum of arrivalDanger for each delivery city (NOT the returning depot)
 combinedCost = D + lambda * R
 ```
 
-Here `lambda` is an **assumed** conversion between danger points and kilometre-equivalent cost; e.g., `lambda=2` means one danger point contributes the same cost as 2 km. Compare several lambda values rather than claiming this is a true monetary risk value.
+Example: for a city with base danger **60**, arriving at 2 PM contributes **60** danger points, while arriving at 9 PM contributes **90**. A base score of 80 would give 120 at night: that is allowed because these values are **relative risk penalties, not percentages/probabilities**. The **base** index is 0–100, not necessarily the nighttime penalty.
 
-**Important:** A fixed danger score added once for every mandatory city would yield the same total regardless of order. The day/night change is what can make the route choice matter. Even with day/night values, if all stops fall in the same period, risk may again be constant.
+Here `lambda` converts danger points into **kilometre-equivalent cost**; e.g., `lambda = 2` makes one danger point count as 2 km in the scoring formula. Vary `lambda` in experiments rather than claiming it is a true monetary risk.
 
-### Initial simulation assumptions — not observed facts
+**Important:** If all mandatory cities are visited once with fixed danger scores, the risk sum is constant for every route. **Changing the score at night** makes the visiting order matter whenever routes produce different day/night arrival patterns. If all deliveries occur in the same period, risk may still be constant.
 
-- Day = 07:00 to before 19:00; night = other hours.
-- Start time, driving speed (e.g. 60 km/h), and service time (e.g. 30 minutes) are configurable.
-- Initially allow no waiting or optional city skipping, to keep the two methods comparable.
-- Treat time in integer minutes where practical; handle journeys crossing midnight.
-- Straight-line distance divided by a speed is a **simplified travel-time estimate**, not real driving time.
+Times should use Malaysia local time, wrap correctly past midnight, and respect the exact **07:00 / 19:00** boundaries. Straight-line Haversine distance divided by 60 km/h is a **simulation**, not a road-driving ETA.
 
 ### Scoring illustration (made-up numbers)
 
@@ -65,16 +74,18 @@ Route Y is preferred under these assumptions despite being longer.
 
 **Primary data:** Lecturer-provided Malaysia GeoNames `MY.txt`. Filter to populated places (`feature class P`), choose and justify a manageable subset (initially about 8–12 cities), and retain GeoNameID, name, latitude and longitude. Optionally retain population. Compute a pairwise **Haversine straight-line** distance matrix; never label it as actual road distance.
 
-**Supplemental data:** [Numbeo city-level Crime/Safety pages](https://www.numbeo.com/crime/country_result.jsp?country=Malaysia), where available, especially *safety walking alone during daylight* and *safety walking alone during night*. These are **survey perceptions**, not actual probability of robbery or delivery-truck safety. Save source URL, retrieval/update date, contributor count if available and exact city match.
+**Supplemental danger scores:** [Numbeo city-level Crime Index pages](https://www.numbeo.com/crime/country_result.jsp?country=Malaysia), where available, can supply a city's **base 0–100 danger score**. Use *one clearly documented base score* for each city. Numbeo values describe survey-reported/perceived crime, **not the probability of robbery or the safety of a delivery truck**. Save source URL, retrieval/update date, contributor count if available, and exact city match.
 
-If a city has no matching score, exclude it or explicitly use **simulated** safety data in a separate, documented experiment. Do not silently fill missing data, invent measurements, or scrape/redistribute data contrary to source terms.
+**Do not use Numbeo's separate day/night walking-safety scores to calculate the algorithm's night multiplier.** Under our agreed model, **night danger is always computed as `1.5 × baseDanger`**. The 1.5 factor is a documented **simulation assumption**, not something verified by Numbeo. Separate Numbeo day/night values could be discussed as context, but must not silently replace this formula.
+
+If a city has no matching base index, exclude it or explicitly use **simulated** base-danger data in a separate, documented experiment. Do not silently fill missing data, invent measurements, or scrape/redistribute data contrary to source terms.
 
 ## Approach A — Safety-Aware 2-opt
 
 1. Build a **valid full tour** using distance-only Nearest Neighbor as an initial baseline.
 2. Calculate the full tour's cost, including every arrival time and the return-to-depot distance.
 3. Try reversing every segment that does not include the two depot endpoints.
-4. Recalculate the **entire route** after each reversal, since a changed order changes later arrival times and day/night risk.
+4. Recalculate the **entire route** after each reversal, since a changed order changes later arrival times and whether the base danger is multiplied by 1.5.
 5. Keep the best strict improvement in each pass. Stop when no tested reversal helps (or at a documented pass limit).
 
 Example of a candidate reversal:
@@ -145,7 +156,7 @@ return lowest-cost completed route after including return to depot
 
 ## Fair testing
 
-Use identical city sets, distance and safety scores, departure times, travel assumptions and lambda for all comparisons. Compare a **distance-only Nearest Neighbor baseline** (not a third redesigned solution), 2-opt, and Beam Search. Record:
+Use identical city sets, base danger scores, departure times, the agreed fixed speed/day-night/zero-stop-time assumptions, and lambda for all comparisons. Compare a **distance-only Nearest Neighbor baseline** (not a third redesigned solution), 2-opt, and Beam Search. Record:
 
 - Tour, total distance, total arrival danger and combined cost.
 - End-to-end runtime, candidate evaluations, 2-opt passes, beam-pruned candidates and memory if measured.
@@ -159,11 +170,11 @@ Suggested experiments: city counts such as 5/8/10/12; morning vs afternoon/eveni
 
 - Every delivery city appears exactly once; depot is first and last.
 - Return distance counts, but returning to depot does not add another delivery-risk score.
-- Delivery time advances the clock; arrival at 06:59, 07:00, 18:59 and 19:00 is classified correctly; cross midnight correctly.
+- Delivery time is **exactly zero**; arrival at 06:59, 07:00, 18:59 and 19:00 is classified correctly; cross midnight correctly. No waiting is allowed.
 - Both approaches call one shared route evaluator for their final reported costs.
 - 2-opt never reverses depot endpoints and recomputes times after each change.
 - Beam Search correctly handles `k=1`, ties, empty candidate layers, and all cities visited.
-- `lambda=0` removes danger from the optimisation objective.
+- `lambda=0` removes danger from the optimisation objective; nighttime risk must equal exactly **1.5 ×** daytime/base risk, and all stops add **0 minutes**.
 - Source-backed versus simulated values are unmistakably identified; no invented results.
 
 ## Proposed repository layout (not yet created)
@@ -193,4 +204,4 @@ From the provided CS201 project brief:
 
 ## Open decisions
 
-Exact selected cities and verified safety values; speed/time model; lambda range; 2-opt start and pass cap; Beam Search ranking, beam widths and tie-breaking; exact language/tooling and repository layout. Document decisions in [AGENTS.md](AGENTS.md) as they are settled.
+Exact selected cities and verified or simulated **base danger** values; departure time(s) and lambda range; 2-opt start and pass cap; Beam Search ranking, beam widths and tie-breaking; exact language/tooling and repository layout. Document decisions in [AGENTS.md](AGENTS.md) as they are settled.

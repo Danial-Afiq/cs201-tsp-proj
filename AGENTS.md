@@ -20,17 +20,31 @@ CS201 *Beyond the Classic TSP*: implement and evaluate **two meaningfully differ
 
 1. Choose a fixed start/end depot. Visit every selected other city **exactly once** and return to the depot.
 2. Use the same `RouteEvaluator` (or equivalent shared pure function) for both algorithms. `cost = totalDistanceKm + lambda * totalDangerAtArrival`.
-3. City danger is derived from perceived day/night safety (`100 - safetyScore`) based on the **actual computed arrival time** at each delivery stop. No delivery danger added on depot return.
-4. Update clock by estimated intercity travel time and per-city delivery/service time. Recalculate all following arrival times after changing visiting order. Handle midnight and exact day/night boundaries.
-5. `lambda`, departure hour, day/night cutoff, travel speed and service time are **model assumptions**, configurable and explicitly documented; avoid claiming they represent real theft probability.
-6. If all cities are mandatory, summing only fixed per-city danger scores is mathematically useless for route order. The time-dependent model is intentional.
-7. Straight-line GeoNames/Haversine distances are **not real road distances**. Do not invent roads or ETA accuracy.
+3. Every city has a **base danger score from 0–100** (sourced from an available Crime Index or explicitly simulated). Daytime danger = base score; **nighttime danger = 1.5 × base score**. This multiplier is a **simulation assumption**, not measured crime probability or a statistically validated difference. Do not independently derive night risk from Numbeo's day/night survey questions.
+4. **Day = 07:00–18:59; night = 19:00–06:59** in Malaysia local time. Classify danger using the **arrival time at each city**, not the chosen roads. Add no new delivery danger for the final return to the depot.
+5. **Fixed speed = 60 km/h**, and **delivery/service time = 0 minutes at every city**. Travel time = (distance km / 60 km/h). Driver leaves immediately on arrival; **no waiting until morning** is permitted. Recalculate all downstream arrival times after a route change; handle midnight and cutoff boundaries correctly.
+6. Use the shared `cost = totalDistanceKm + lambda * totalArrivalDanger` objective for both algorithms. `lambda` and departure time may be varied deliberately for experiments; speed, 1.5× night factor, zero-stop-time and day/night bounds are the agreed **fixed base-model assumptions**. Document any separate sensitivity experiment clearly.
+7. Fixed risk added once per required city would not affect city order. The day/night variation must be modelled explicitly. Since base scores range from 0–100, nighttime penalties can exceed 100; they are **relative model scores, not percentages**. Straight-line GeoNames/Haversine distances are **not actual road distances** or reliable road ETAs.
+
+## Agreed model assumptions (team decisions)
+
+| # | Assumption | Implementation requirement |
+| --- | --- | --- |
+| 1 | Higher crime risk at night | `nightDanger = 1.5 * baseDanger`. Do not use a different per-city night multiplier. |
+| 2 | Different city danger scores | Each city receives a base `0–100` score from documented available crime data or explicitly simulated input. |
+| 3 | Fixed day/night schedule | Day `07:00 <= t < 19:00`; night otherwise (local 24-hour clock). |
+| 4 | Constant travelling speed | Exactly `60 km/h` for the baseline simulation. |
+| 5 | Negligible delivery time | Exactly `0 minutes` per delivery; do not introduce a 30-minute stop. |
+| 6 | Cannot wait for morning | No waiting; departure from a city occurs immediately after arrival. |
+| 7 | Risk depends on arrival city and time | Charge risk when **arriving at delivery cities**, not while driving each edge. |
+
+**Canonical evaluator:** Starting from the user-selected departure time, for each leg calculate `arrivalNext = arrivalCurrent + distanceKm / 60` (hours). Set `currentTime = arrivalNext` for the next leg, because time spent in city is zero. Charge either base or 1.5×base on delivery arrival; do not charge a separate danger score when returning to the depot. Sum all leg distances for the full cost. Do not cap night penalties at 100: these are model points, not probabilities. Vary `lambda` when studying distance/safety trade-offs.
 
 ## Input and provenance
 
 - **Required primary dataset:** lecturer-provided GeoNames `MY.txt`; filter relevant `P` (populated-place) features and justify a manageable initial subset (about 8–12 locations). Track GeoNameID, name and coordinates.
-- **Supplemental source:** Numbeo perceived safety walking alone by day/night, where city-specific observations are available. Store source URL, retrieval/update date, contributor count if possible, exact city matching and terms-of-use considerations.
-- Don't treat Numbeo safety scores as a proven probability of a delivery driver being robbed.
+- **Supplemental source:** Numbeo city-level **Crime Index** where city-specific data is available, as one possible source for the base 0–100 danger value. Store source URL, retrieval/update date, contributor count if possible, exact city matching and terms-of-use considerations. Do not replace the agreed 1.5× night model with Numbeo's separate day/night walking-safety scores.
+- Do not treat Numbeo Crime Index scores as a proven probability of a delivery driver being robbed. The 1.5× night factor is simulated, not sourced from Numbeo.
 - Missing values must be excluded or explicitly labelled as **synthetic**. Do not fabricate empirical observations, experimental results, screenshots or citations.
 - Do not scrape or redistribute data without confirming provider permissions.
 
@@ -72,8 +86,8 @@ Only create these files if they fit the actual team-chosen Java structure. Prefe
 
 ## Testing and experiments
 
-- Assert tour validity (depot twice, each other selected city once), time boundaries at 06:59/07:00/18:59/19:00, midnight crossings, delivery duration, `lambda=0`, `k=1`, ties, beam capacity, no-improvement 2-opt cases.
-- Common test inputs and scorer for both approaches and the distance-only baseline.
+- Assert tour validity (depot twice, each other selected city once), time boundaries at 06:59/07:00/18:59/19:00, midnight crossings, **zero delivery duration**, **no waiting**, **60 km/h constant speed**, **night = 1.5× base danger**, `lambda=0`, `k=1`, ties, beam capacity, no-improvement 2-opt cases.
+- Common test inputs and scorer for both approaches and the distance-only baseline. Verify that swapping city order changes clock times but never adds stop time; verify nighttime score can exceed 100 without being silently clipped.
 - Record costs, distances, risk, runtime, number of candidates checked, 2-opt passes, beam prunes, parameters and reproducible random seed where applicable.
 - Run city-count scaling, departure-time, lambda, beam-width and starting-route studies. Include losing cases and limitations, not just favorable examples.
 - Optional exhaustive enumeration on tiny inputs can confirm optimality; do not claim global optimum otherwise.
@@ -99,4 +113,4 @@ Only create these files if they fit the actual team-chosen Java structure. Prefe
 
 ## Open decisions (not settled yet)
 
-City list and Numbeo mapping; exact score dates and coverage; speed/service/day cutoff assumptions; safety weights; 2-opt initial route and cap; beam rank function, width and ties; build tool, CLI and data licensing. Update this section whenever the team agrees to a change.
+City list and Numbeo mapping; exact base-score dates and coverage; departure time(s) and safety weights; 2-opt initial route and cap; beam rank function, width and ties; build tool, CLI and data licensing. Update this section whenever the team agrees to a change.
