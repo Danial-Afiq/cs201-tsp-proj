@@ -1,19 +1,44 @@
 geonameid,name,latitude,longitude,feature_class,feature_code,admin1_code,population,crime_index,day_safety,night_safety,day_risk,night_risk,numbeo_contributors,numbeo_last_update,numbeo_url
-1736278,Kangar,6.4414,100.19862,P,PPLA,08,63869,20.88,85.00,70.00,15.00,30.00,5,2024-06-14,https://www.numbeo.com/crime/in/Kangar-Perlis-Malaysia
 1736309,Alor Setar,6.12104,100.36014,P,PPLA,02,417800,28.69,80.36,60.71,19.64,39.29,14,2024-09-22,https://www.numbeo.com/crime/in/Alor-Setar
-1735498,Sungai Petani,5.647,100.48772,P,PPL,02,544851,43.92,70.00,50.00,30.00,50.00,15,2025-05-07,https://www.numbeo.com/crime/in/Sungai-Petani-Malaysia
-1735106,George Town,5.41123,100.33543,P,PPLA,09,158336,24.99,85.96,69.08,14.04,30.92,41,2026-02-25,https://www.numbeo.com/crime/in/George-Town
+1735168,Ampang,3.15,101.76667,P,PPL,14,126285,39.21,72.50,60.00,27.50,40.00,10,2025-11-15,https://www.numbeo.com/crime/in/Ampang-Jaya-Malaysia
+1732687,Batu Pahat,1.8548,102.9325,P,PPL,01,156236,24.51,91.67,91.67,8.33,8.33,3,2021-09-28,https://www.numbeo.com/crime/in/Bandar-Penggaram-Malaysia
+1734797,Bangi,2.9,101.78333,P,PPL,12,45042,38.57,63.64,52.27,36.36,47.73,11,2024-02-10,https://www.numbeo.com/crime/in/Bangi-Malaysia
+1735102,Bayan Lepas,5.29992,100.26052,P,PPL,09,130455,24.45,91.67,61.11,8.33,38.89,9,2025-07-30,https://www.numbeo.com/crime/in/Bayan-Lepas-Malaysia
+1737486,Bintulu,3.16667,113.03333,P,PPL,11,151617,38.97,75.00,58.33,25.00,41.67,6,2024-10-16,https://www.numbeo.com/crime/in/Bintulu-Malaysia
 1735079,Bukit Mertajam,5.36301,100.4667,P,PPL,09,212329,24.59,83.33,65.00,16.67,35.00,15,2025-07-22,https://www.numbeo.com/crime/in/Bukit-Mertajam-Malaysia
-1734586,Taiping,4.85,100.73333,P,PPL,07,217647,28.09,82.50,47.50,17.50,52.50,10,2024-07-08,https://www.numbeo.com/crime/in/Taiping-Malaysia
+1735076,Butterworth,5.3991,100.36382,P,PPL,09,107591,24.41,85.00,65.00,15.00,35.00,5,2023-10-29,https://www.numbeo.com/crime/in/Butterworth-Malaysia
+6930887,Cyberjaya,2.92281,101.65718,P,PPL,12,79200,31.99,82.52,55.38,17.48,44.62,36,2023-04-24,https://www.numbeo.com/crime/in/Cyberjaya
+1735106,George Town,5.41123,100.33543,P,PPLA,09,158336,24.99,85.96,69.08,14.04,30.92,41,2026-02-25,https://www.numbeo.com/crime/in/George-Town
 1734634,Ipoh,4.5841,101.0829,P,PPLA,07,759952,44.80,68.60,38.20,31.40,61.80,37,2024-10-04,https://www.numbeo.com/crime/in/Ipoh
+1732752,Johor Bahru,1.4655,103.7578,P,PPLA,01,858118,48.90,62.66,39.46,37.34,60.54,133,2026-06-30,https://www.numbeo.com/crime/in/Johor-Bahru
+10941913,Kajang,2.99424,101.78875,P,PPL,12,236240,39.24,67.29,49.64,32.71,50.36,18,2023-06-08,https://www.numbeo.com/crime/in/Kajang-Selangor-Malaysia
+1736278,Kangar,6.4414,100.19862,P,PPLA,08,63869,20.88,85.00,70.00,15.00,30.00,5,2024-06-14,https://www.numbeo.com/crime/in/Kangar-Perlis-Malaysia
+1760605,Kepong,3.21398,101.64018,P,PPL,14,85960,36.70,72.73,59.09,27.27,40.91,11,2024-10-17,https://www.numbeo.com/crime/in/Kepong-Malaysia
+1732905,Klang,3.03667,101.44333,P,PPL,12,240016,55.98,54.10,37.67,45.90,62.33,89,2026-03-04,https://www.numbeo.com/crime/in/Klang
 1736376,Kota Bharu,6.12361,102.24333,P,PPLA,03,568900,41.32,71.88,52.44,28.12,47.56,18,2024-06-18,https://www.numbeo.com/crime/in/Kota-Bharu
+12514556,Kota Damansara,3.15454,101.58022,P,PPL,12,500000,29.41,91.67,58.33,8.33,41.67,3,2022-04-12,https://www.numbeo.com/crime/in/Kota-Damansara-Malaysia
+1733432,Kota Kinabalu,5.9749,116.0724,P,PPLA,16,500421,44.04,72.73,46.15,27.27,53.85,63,2025-03-10,https://www.numbeo.com/crime/in/Kota-Kinabalu
+1735161,Kuala Lumpur,3.1412,101.68653,P,PPLC,14,1453975,58.91,56.86,31.96,43.14,68.04,839,2026-10-03,https://www.numbeo.com/crime/in/Kuala-Lumpur
 1734705,Kuala Terengganu,5.3302,103.1408,P,PPLA,13,426500,19.54,80.88,72.06,19.12,27.94,17,2026-08-16,https://www.numbeo.com/crime/in/Kuala-Terengganu-Malaysia
 1735227,Kuantan,3.8077,103.326,P,PPLA,06,548014,27.14,90.62,64.06,9.38,35.94,16,2025-03-21,https://www.numbeo.com/crime/in/Kuantan
-1735161,Kuala Lumpur,3.1412,101.68653,P,PPLC,14,1453975,58.91,56.86,31.96,43.14,68.04,839,2026-10-03,https://www.numbeo.com/crime/in/Kuala-Lumpur
-1735158,Petaling Jaya,3.10726,101.60671,P,PPLA2,12,807879,47.64,65.82,41.39,34.18,58.61,87,2026-10-02,https://www.numbeo.com/crime/in/Petaling-Jaya
-1732903,Shah Alam,3.08507,101.53281,P,PPL,12,740750,46.93,66.79,48.50,33.21,51.50,41,2026-10-21,https://www.numbeo.com/crime/in/Shah-Alam
-1732905,Klang,3.03667,101.44333,P,PPL,12,240016,55.98,54.10,37.67,45.90,62.33,89,2026-03-04,https://www.numbeo.com/crime/in/Klang
-1734810,Seremban,2.7297,101.9381,P,PPLA,05,372917,42.18,67.65,43.79,32.35,56.21,22,2025-05-04,https://www.numbeo.com/crime/in/Seremban
+1735634,Kuching,1.55,110.33333,P,PPLA,11,402738,42.02,72.06,52.12,27.94,47.88,74,2026-07-10,https://www.numbeo.com/crime/in/Kuching
+1734393,Kulim,5.36499,100.56177,P,PPL,02,170889,20.59,87.50,75.00,12.50,25.00,4,2022-06-18,https://www.numbeo.com/crime/in/Kulim-Malaysia
+1733782,Labuan,5.28028,115.2475,P,PPLA,15,95120,17.16,100.00,68.75,0.00,31.25,4,2023-12-08,https://www.numbeo.com/crime/in/Labuan-Malaysia
 1734759,Malacca,2.196,102.2405,P,PPLA,04,579000,26.74,87.78,67.12,12.22,32.88,23,2026-08-03,https://www.numbeo.com/crime/in/Malacca-Malaysia
+1738050,Miri,4.39928,113.99163,P,PPL,11,300543,36.35,82.62,62.53,17.38,37.47,30,2024-10-12,https://www.numbeo.com/crime/in/Miri
 1732869,Muar,2.0442,102.5689,P,PPL,01,314776,26.26,82.14,64.29,17.86,35.71,7,2024-09-16,https://www.numbeo.com/crime/in/Muar-Malaysia
-1732752,Johor Bahru,1.4655,103.7578,P,PPLA,01,858118,48.90,62.66,39.46,37.34,60.54,133,2026-06-30,https://www.numbeo.com/crime/in/Johor-Bahru
+1771287,Kampung Baharu Nilai,2.8033,101.7972,P,PPL,05,38612,46.10,77.78,50.00,22.22,50.00,9,2025-03-04,https://www.numbeo.com/crime/in/Nilai-Malaysia
+1735158,Petaling Jaya,3.10726,101.60671,P,PPLA2,12,807879,47.64,65.82,41.39,34.18,58.61,87,2026-10-02,https://www.numbeo.com/crime/in/Petaling-Jaya
+1749822,Puchong,3,101.61667,P,PPL,12,375181,46.25,67.19,45.31,32.81,54.69,16,2024-09-24,https://www.numbeo.com/crime/in/Puchong-Malaysia
+10792382,Putra Heights,2.99361,101.57255,P,PPL,12,60000,77.45,25.00,0.00,75.00,100.00,3,2024-01-22,https://www.numbeo.com/crime/in/Putra-Heights-Malaysia
+6697380,Putrajaya,2.93527,101.69112,P,PPLG,17,50000,23.59,86.84,71.05,13.16,28.95,19,2025-09-13,https://www.numbeo.com/crime/in/Putrajaya-Malaysia
+1735150,Rawang,3.3213,101.5767,P,PPL,12,199095,29.66,91.67,66.67,8.33,33.33,3,2021-11-29,https://www.numbeo.com/crime/in/Rawang-Malaysia
+1744366,Serdang,5.20372,100.62476,P,PPL,07,6793,54.70,56.25,37.50,43.75,62.50,8,2023-06-24,https://www.numbeo.com/crime/in/Serdang-Malaysia
+1734810,Seremban,2.7297,101.9381,P,PPLA,05,372917,42.18,67.65,43.79,32.35,56.21,22,2025-05-04,https://www.numbeo.com/crime/in/Seremban
+11184859,Seri Iskandar,4.35993,100.98491,P,PPL,07,14827,35.59,70.00,60.00,30.00,40.00,5,2025-03-06,https://www.numbeo.com/crime/in/Seri-Iskandar-Malaysia
+1732903,Shah Alam,3.08507,101.53281,P,PPL,12,740750,46.93,66.79,48.50,33.21,51.50,41,2026-10-21,https://www.numbeo.com/crime/in/Shah-Alam
+1735902,Sibu,2.3,111.81667,P,PPL,11,198239,25.00,80.00,70.00,20.00,30.00,5,2024-07-16,https://www.numbeo.com/crime/in/Sibu
+1732745,Skudai,1.53741,103.65779,P,PPLX,01,159733,37.35,75.00,60.00,25.00,40.00,5,2023-06-22,https://www.numbeo.com/crime/in/Skudai-Sekudai-Malaysia
+8504423,Subang Jaya,3.04384,101.58062,P,PPLX,12,708296,40.70,75.38,43.24,24.62,56.76,35,2026-06-23,https://www.numbeo.com/crime/in/Subang-Jaya
+1735498,Sungai Petani,5.647,100.48772,P,PPL,02,544851,43.92,70.00,50.00,30.00,50.00,15,2025-05-07,https://www.numbeo.com/crime/in/Sungai-Petani-Malaysia
+1734586,Taiping,4.85,100.73333,P,PPL,07,217647,28.09,82.50,47.50,17.50,52.50,10,2024-07-08,https://www.numbeo.com/crime/in/Taiping-Malaysia
