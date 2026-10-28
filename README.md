@@ -2,7 +2,7 @@
 
 CS201 Data Structures & Algorithms project for *Beyond the Classic TSP*.
 
-> **Current status (2026-10-26):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware 2-opt and Safety-Aware Beam Search are proposed solutions. They have not yet been implemented, tested, or evaluated.
+> **Current status (2026-10-28):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, CSV validation, a reusable tour evaluator, and a command-line runner are implemented. All 23 automated tests pass, including exhaustive-reference checks on small instances. Safety-Aware 2-opt and comparative experiments remain unimplemented.
 
 The official [project brief](docs/Project_2627T1.pdf) is the authority for assignment requirements. This README explains our current project direction and data decisions. It does not add requirements to the brief.
 
@@ -23,16 +23,16 @@ The presentation must cover the motivation, variant inputs and constraints, rede
 
 A delivery driver carrying valuable goods must visit a chosen set of Malaysian locations once and return to a depot. A shortest-distance route may reach some locations at night, when the reported perception of safety is lower. Our proposed variant therefore considers both geographical distance and arrival-time-dependent safety.
 
-The planned output is a closed tour, its total distance, arrival times, total arrival risk, scaled distance and risk components, and combined cost. Experiment code will choose a depot and a subset from the master dataset. The CSV order is not a route.
+The Beam Search output is a closed tour, its total distance, arrival times, total arrival risk, scaled distance and risk components, and combined cost. Its command-line runner accepts a depot and a subset from the master dataset. The CSV order is not a route.
 
-## Proposed solutions
+## Solution approaches
 
 | Approach | Main idea | Likely strengths | Likely limitations |
 | --- | --- | --- | --- |
 | Safety-Aware 2-opt | Start from a valid tour and reverse route segments when the shared objective improves. | Simple local improvement and easy to explain. | May stop at a local optimum and may depend on the starting tour. |
 | Safety-Aware Beam Search | Build routes in stages while retaining several promising partial routes. | Explores several alternatives without exhaustive search. | Beam pruning can discard a better final route and performance depends on design choices. |
 
-These descriptions are proposals. The team may refine initialisation, state representation, ranking, tie handling, stopping rules, pruning, and supporting data structures after testing. Any final implementations must remain meaningfully different, use the same problem definition, and be justified with complexity and experimental evidence.
+Beam Search is implemented in [beam_search.py](beam_search.py); 2-opt remains a proposal. The team may refine the approaches after testing. Final implementations must remain meaningfully different, use the same problem definition, and be justified with complexity and experimental evidence. The [Beam Search design notes](docs/beam_search.md) explain the implemented structures, ranking, pseudocode, complexity, and limitations.
 
 A distance-only method such as Nearest Neighbor may be used as a baseline. It is not one of the two proposed redesigned solutions unless the team deliberately changes the project plan and documents why.
 
@@ -46,7 +46,14 @@ C = alpha * D_scaled + (1 - alpha) * R_scaled
 
 `D_scaled` represents total route distance on a documented scale. `R_scaled` represents total arrival risk on a documented scale. `alpha` is between 0 and 1. A larger `alpha` gives more weight to distance, while a smaller value gives more weight to safety.
 
-The exact normalisation method remains an implementation and experiment decision. It must be mathematically sound, documented, and applied consistently to every algorithm being compared on the same problem instance. Constants derived from one temporary city subset must not become permanent project requirements.
+The implementation uses fixed upper-bound normalisation for each selected problem instance. For `n` selected cities (including the depot) and maximum pairwise Haversine distance `d_max`:
+
+```text
+D_scaled = total closed-tour distance / (n * d_max)
+R_scaled = total non-depot arrival risk / (100 * (n - 1))
+```
+
+A closed tour contains `n` legs and `n - 1` scored arrivals, so both components lie between 0 and 1. If all coordinates coincide, the distance divisor is set to 1 km and scaled distance is zero. These divisors stay fixed for every candidate route of an instance; they are not fitted to the current beam. Subsets have their own divisors, so compare algorithms on the same instance and report raw totals too. This scaling is an implementation choice, not a lecturer requirement, and future 2-opt comparisons must reuse it or change both approaches together.
 
 The team has agreed on these modelling assumptions:
 
@@ -64,6 +71,37 @@ The team has agreed on these modelling assumptions:
 | Distance | Haversine distance from GeoNames coordinates, used as a simplified geographical model rather than road distance. |
 
 Changing a route changes later arrival times, so the applicable day/night risks may also change. If every arrival happens in the same time period, the risk total may be identical for several routes. Numbeo scores are perception scores, not probabilities of crime.
+
+## Running Beam Search
+
+Use Python 3.10 or newer; no third-party packages are required. From the repository root:
+
+```bash
+python3 beam_search.py --depot "Kuala Lumpur" \
+  --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" \
+  --departure 18:00 --alpha 0.5 --beam-width 100
+```
+
+The depot is included automatically. Names or stable GeoNameIDs are accepted. Omitting `--cities` uses all 43 master locations, including East Malaysia; select a justified subset for delivery experiments. Defaults are Kuala Lumpur, departure at 08:00 local time, `alpha=0.5`, and beam width 100.
+
+Use `--output result.json` to save route details and reproducibility metadata, including the dataset SHA-256, selected IDs, depot, departure, scaling divisors, model constants, algorithm version, and search parameters. `D+1` in the arrival table means the day after departure. Initial and final depot risks are shown as `-` and excluded from total risk. Search runtime excludes CSV loading and distance-matrix construction.
+
+```bash
+python3 beam_search.py --help
+python3 -m unittest discover -s tests -v
+```
+
+The implementation ranks partial routes by accumulated weighted cost and includes return distance before the final pruning step. It is a heuristic and does not guarantee an optimal tour. The tests are correctness checks, not a completed comparative experiment study.
+
+Current implementation files:
+
+```text
+beam_search.py                  Loader, instance builder, evaluator, search, CLI
+tests/test_beam_search.py        Model and search correctness checks
+docs/beam_search.md              Implemented algorithm and complexity
+docs/Project_2627T1.pdf          Official assignment brief
+data/processed/cities_cleaned.csv  Unmodified 43-location master dataset
+```
 
 ## Master dataset
 

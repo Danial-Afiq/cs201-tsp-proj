@@ -19,7 +19,7 @@ The two proposed redesigned approaches are:
 
 They are intended to differ meaningfully in algorithm and data structure design. Their detailed implementations remain open to experimentation and justification.
 
-**Current status (2026-10-26):** `data/processed/cities_cleaned.csv` is a validated 43-row master dataset. The algorithms, automated tests, experiments, and benchmark results have not yet been implemented or run. Never claim otherwise without repository evidence.
+**Current status (2026-10-28):** `data/processed/cities_cleaned.csv` is a validated 43-row master dataset. `beam_search.py` implements CSV validation, problem construction, a reusable full-tour evaluator, Safety-Aware Beam Search, and a CLI with JSON export. All 23 tests in `tests/test_beam_search.py` pass, including small-instance exhaustive-reference checks. 2-opt, comparative experiments, and benchmark results remain unimplemented. Do not describe correctness checks as completed experiments.
 
 ## Agreed problem model
 
@@ -38,7 +38,7 @@ Crime Index is contextual data and is not a substitute for day or night arrival 
 
 ## Normalisation
 
-The exact definitions of `D_scaled` and `R_scaled` are open design choices. A chosen method must be mathematically sound, documented, and applied consistently to all algorithms compared on the same problem instance.
+The implemented definitions are `D_scaled = D / (n * d_max)` and `R_scaled = R / (100 * (n - 1))`, where `n` includes the depot and `d_max` is the maximum pairwise Haversine distance for the selected instance. If `d_max` is zero, use distance divisor 1 km (all routes then have zero distance). These are implementation choices, not lecturer requirements. Divisors are fixed across candidate routes and must be shared by all algorithms compared on the same instance. See `docs/beam_search.md`.
 
 Do not hard-code a normalisation constant derived from one temporary subset as a permanent project rule. Report raw distance and risk alongside scaled components so results remain interpretable. If the normalisation design changes, update the evaluator, tests, experiment metadata, and documentation together.
 
@@ -85,6 +85,8 @@ The current algorithm names and high-level ideas are team decisions. Internal st
 For 2-opt, a valid initial tour, segment-reversal policy, improvement strategy, tie handling, and stopping rule may be chosen based on evidence. Re-evaluate the full affected route logic because arrival-time risk can change after a move.
 
 For Beam Search, state fields, ranking, pruning, deduplication, reconstruction, and beam-width handling may be refined. Partial states that reach the same city after visiting the same set are not automatically equivalent if their arrival times differ.
+
+The current implementation stores current-city index, visited bit mask, accumulated distance/risk, and a parent pointer. Arrival time is derived from accumulated distance. It streams candidates through `heapq.nsmallest`, ranks prefixes by accumulated scaled cost, and includes closure distance before final pruning. Ties use deterministic generation order with city expansion in ascending GeoNameID order. It does not deduplicate partial states. `make_problem()` and `evaluate_tour()` are reusable by the future 2-opt implementation.
 
 Arrays, lists, matrices, bit sets, priority queues, parent pointers, and other structures are options rather than mandatory choices. Select structures that serve the final algorithm and explain their time and space costs. Do not add a data structure solely to make the project look more complex.
 
