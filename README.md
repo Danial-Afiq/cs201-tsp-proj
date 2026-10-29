@@ -2,7 +2,7 @@
 
 CS201 Data Structures & Algorithms project for *Beyond the Classic TSP*.
 
-> **Current status (2026-10-28):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, CSV validation, a reusable tour evaluator, and a command-line runner are implemented. All 23 automated tests pass, including exhaustive-reference checks on small instances. Safety-Aware 2-opt and comparative experiments remain unimplemented.
+> **Current status (2026-10-29):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, CSV validation, a reusable tour evaluator with overnight-rest scheduling, and a command-line runner are implemented. All 26 automated tests pass, including exhaustive-reference checks on small instances. Safety-Aware 2-opt and comparative experiments remain unimplemented.
 
 The official [project brief](docs/Project_2627T1.pdf) is the authority for assignment requirements. This README explains our current project direction and data decisions. It does not add requirements to the brief.
 
@@ -41,19 +41,22 @@ A distance-only method such as Nearest Neighbor may be used as a baseline. It is
 The proposed objective is:
 
 ```text
-C = alpha * D_scaled + (1 - alpha) * R_scaled
+C = alpha * D_scaled + beta * T_scaled + (1 - alpha - beta) * R_scaled
 ```
 
-`D_scaled` represents total route distance on a documented scale. `R_scaled` represents total arrival risk on a documented scale. `alpha` is between 0 and 1. A larger `alpha` gives more weight to distance, while a smaller value gives more weight to safety.
+`D_scaled` represents total route distance, `T_scaled` total elapsed trip time including rests, and `R_scaled` total arrival risk, each on a documented scale. `alpha` and `beta` are non-negative with `alpha + beta <= 1`. A larger `alpha` gives more weight to distance, a larger `beta` to finishing sooner, and the remaining weight goes to safety.
+
+The time term exists because the driver may rest overnight to avoid a night arrival (see the assumptions below). Without it, resting would be free, nearly every arrival would happen by day, and total risk would be almost the same for every route order, reducing the problem to distance-only TSP. With it, each optional rest is a trade-off between trip time and arrival risk. Earlier versions had no waiting at all; the driver then drove non-stop through the night and long legs could skip a whole night with at most one night arrival.
 
 The implementation uses fixed upper-bound normalisation for each selected problem instance. For `n` selected cities (including the depot) and maximum pairwise Haversine distance `d_max`:
 
 ```text
 D_scaled = total closed-tour distance / (n * d_max)
 R_scaled = total non-depot arrival risk / (100 * (n - 1))
+T_scaled = elapsed minutes from departure to final depot arrival / (n * (d_max_minutes + 1440))
 ```
 
-A closed tour contains `n` legs and `n - 1` scored arrivals, so both components lie between 0 and 1. If all coordinates coincide, the distance divisor is set to 1 km and scaled distance is zero. These divisors stay fixed for every candidate route of an instance; they are not fitted to the current beam. Subsets have their own divisors, so compare algorithms on the same instance and report raw totals too. This scaling is an implementation choice, not a lecturer requirement, and future 2-opt comparisons must reuse it or change both approaches together.
+A closed tour contains `n` legs and `n - 1` scored arrivals, and each of its `n` departures waits less than a day, so all three components lie between 0 and 1. `d_max_minutes` is the driving time of the longest pairwise leg. If all coordinates coincide, the distance divisor is set to 1 km and scaled distance is zero. These divisors stay fixed for every candidate route of an instance; they are not fitted to the current beam. Subsets have their own divisors, so compare algorithms on the same instance and report raw totals too. This scaling is an implementation choice, not a lecturer requirement, and future 2-opt comparisons must reuse it or change both approaches together.
 
 The team has agreed on these modelling assumptions:
 
@@ -67,10 +70,10 @@ The team has agreed on these modelling assumptions:
 | Night | `19:00 <= local time` or `local time < 07:00`. |
 | Speed | Constant 60 km/h. |
 | Service time | Zero minutes at each stop. |
-| Waiting | No waiting for a safer time period. |
+| Rest | The driver never departs at night and never starts a leg that would still be underway at the next 07:00; such departures wait until 07:00, from when any leg may start. By day, before any leg except the return, the driver may also choose to rest overnight until 07:00 to avoid a night arrival. For a given tour the evaluator chooses the optional rests that minimise cost. |
 | Distance | Haversine distance from GeoNames coordinates, used as a simplified geographical model rather than road distance. |
 
-Changing a route changes later arrival times, so the applicable day/night risks may also change. If every arrival happens in the same time period, the risk total may be identical for several routes. Numbeo scores are perception scores, not probabilities of crime.
+Changing a route changes later arrival times, so the applicable day/night risks and useful rests may also change. Driving into the evening and arriving at night is still allowed and is charged night risk. Only legs longer than 12 hours (720 km) must arrive at night; in this dataset these are cross-sea Haversine legs. If every arrival happens in the same time period, the risk total may be identical for several routes. Numbeo scores are perception scores, not probabilities of crime.
 
 ## Running Beam Search
 
@@ -79,10 +82,10 @@ Use Python 3.10 or newer; no third-party packages are required. From the reposit
 ```bash
 python3 beam_search.py --depot "Kuala Lumpur" \
   --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" \
-  --departure 18:00 --alpha 0.5 --beam-width 100
+  --departure 18:00 --alpha 0.4 --beta 0.2 --beam-width 100
 ```
 
-The depot is included automatically. Names or stable GeoNameIDs are accepted. Omitting `--cities` uses all 43 master locations, including East Malaysia; select a justified subset for delivery experiments. Defaults are Kuala Lumpur, departure at 08:00 local time, `alpha=0.5`, and beam width 100.
+The depot is included automatically. Names or stable GeoNameIDs are accepted. Omitting `--cities` uses all 43 master locations, including East Malaysia; select a justified subset for delivery experiments. Defaults are Kuala Lumpur, departure at 08:00 local time, `alpha=0.4`, `beta=0.2` (so risk weight 0.4), and beam width 100. These defaults are not tuned. Use `--beta 0` together with `alpha` up to 1 to ignore trip time.
 
 Use `--output result.json` to save route details and reproducibility metadata, including the dataset SHA-256, selected IDs, depot, departure, scaling divisors, model constants, algorithm version, and search parameters. `D+1` in the arrival table means the day after departure. Initial and final depot risks are shown as `-` and excluded from total risk. Search runtime excludes CSV loading and distance-matrix construction.
 
@@ -91,7 +94,7 @@ python3 beam_search.py --help
 python3 -m unittest discover -s tests -v
 ```
 
-The implementation ranks partial routes by accumulated weighted cost and includes return distance before the final pruning step. It is a heuristic and does not guarantee an optimal tour. The tests are correctness checks, not a completed comparative experiment study.
+The arrival table shows each rest and its kind: `night` (mandatory at night), `long leg` (mandatory before a leg that would run through a night) or `chosen` (optional). The implementation branches on leaving now or resting, ranks partial routes by accumulated weighted cost, and includes the return leg before the final pruning step. The final tour is re-evaluated with its cheapest rest schedule. It is a heuristic and does not guarantee an optimal tour. The tests are correctness checks, not a completed comparative experiment study.
 
 Current implementation files:
 
@@ -200,7 +203,7 @@ The schema intentionally omits `data_quality_flag`, `numbeo_pdf_pages`, `numbeo_
 The following are options for the team to refine rather than fixed requirements:
 
 - compare both proposed algorithms and a common baseline on the same selected instances;
-- vary subset size, region, depot, departure time, `alpha`, beam width, and 2-opt design choices;
+- vary subset size, region, depot, departure time, `alpha`, `beta`, beam width, and 2-opt design choices;
 - test Peninsular-only, East Malaysia, metropolitan, nationwide, or contributor-based subsets;
 - use tiny instances where exhaustive enumeration can provide a reference optimum;
 - evaluate sensitivity to normalisation choices, provided each comparison uses the same sound scaling method;

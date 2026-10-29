@@ -28,7 +28,11 @@ SPEED_KMH = 60.0
 MINUTES_PER_DAY = 1440
 DAY_START_MINUTES = 7 * 60
 DAY_END_MINUTES = 19 * 60
-IMPLEMENTATION_VERSION = "1"
+REST_POLICY = (
+    "rest until 07:00 before departing at night or on a leg that would still be underway "
+    "at the next 07:00; optional rest until 07:00 by day before any leg except the return"
+)
+IMPLEMENTATION_VERSION = "2"
 DEFAULT_DATA = Path(__file__).resolve().parent / "data/processed/cities_cleaned.csv"
 CSV_COLUMNS = (
     "geonameid", "name", "latitude", "longitude", "feature_class",
@@ -145,23 +149,40 @@ class RoutingProblem:
     cities: tuple[City, ...]
     depot: int  # Index into cities, not a GeoNameID.
     departure_minutes: float  # Local minutes since midnight on departure day.
-    alpha: float
+    alpha: float  # Distance weight.
+    beta: float  # Elapsed-time weight; risk receives the remaining weight.
     distances_km: tuple[tuple[float, ...], ...]
     distance_divisor_km: float
     risk_divisor: float
+    time_divisor_minutes: float
 
-    def cost(self, distance_km: float, risk: float) -> float:
+    @property
+    def risk_weight(self) -> float:
+        return max(0.0, 1 - self.alpha - self.beta)
+
+    def cost(self, distance_km: float, risk: float, elapsed_minutes: float) -> float:
         return (self.alpha * distance_km / self.distance_divisor_km
-                + (1 - self.alpha) * risk / self.risk_divisor)
+                + self.beta * elapsed_minutes / self.time_divisor_minutes
+                + self.risk_weight * risk / self.risk_divisor)
+
+
+def instance_scales(size: int, longest_edge_km: float) -> tuple[float, float, float]:
+    """Fixed distance, risk and time divisors that bound complete tours by 1."""
+    # Each of the n legs drives at most d_max after a rest shorter than a day.
+    time_divisor = size * (_drive_minutes(longest_edge_km) + MINUTES_PER_DAY)
+    distance_divisor = size * longest_edge_km if longest_edge_km > 0 else 1.0
+    return distance_divisor, 100.0 * (size - 1), time_divisor
 
 
 def make_problem(
     cities: Sequence[City], depot_id: int, departure_minutes: float = 8 * 60,
-    alpha: float = 0.5,
+    alpha: float = 0.4, beta: float = 0.2,
 ) -> RoutingProblem:
     """Build one instance and its fixed scales, reusable across algorithms."""
     if not math.isfinite(alpha) or not 0 <= alpha <= 1:
         raise ValueError("alpha must be finite and in [0, 1]")
+    if not math.isfinite(beta) or beta < 0 or alpha + beta > 1 + 1e-12:
+        raise ValueError("beta must be finite and non-negative, with alpha + beta <= 1")
     if not math.isfinite(departure_minutes) or not 0 <= departure_minutes < MINUTES_PER_DAY:
         raise ValueError("departure must be in [00:00, 24:00)")
     ordered = tuple(sorted(cities, key=lambda city: city.geonameid))
@@ -190,12 +211,13 @@ def make_problem(
         for second in range(first + 1, size):
             distance = haversine_km(ordered[first], ordered[second])
             distances[first][second] = distances[second][first] = distance
-    longest_edge = max(max(row) for row in distances)
+    distance_divisor, risk_divisor, time_divisor = instance_scales(
+        size, max(max(row) for row in distances))
     return RoutingProblem(
         cities=ordered, depot=ids.index(depot_id), departure_minutes=departure_minutes,
-        alpha=alpha, distances_km=tuple(tuple(row) for row in distances),
-        distance_divisor_km=size * longest_edge if longest_edge > 0 else 1.0,
-        risk_divisor=100.0 * (size - 1),
+        alpha=alpha, beta=beta, distances_km=tuple(tuple(row) for row in distances),
+        distance_divisor_km=distance_divisor, risk_divisor=risk_divisor,
+        time_divisor_minutes=time_divisor,
     )
 
 
@@ -204,9 +226,28 @@ def is_day(arrival_minutes: float) -> bool:
     return DAY_START_MINUTES <= local_minutes < DAY_END_MINUTES
 
 
-def _arrival_minutes(problem: RoutingProblem, distance_km: float) -> float:
-    # No service or waiting time; deriving time from distance avoids a second clock.
-    return problem.departure_minutes + distance_km / SPEED_KMH * 60
+def _drive_minutes(distance_km: float) -> float:
+    return distance_km / SPEED_KMH * 60
+
+
+def _wait_until_morning(clock_minutes: float) -> float:
+    """Minutes until the next 07:00; zero exactly at 07:00."""
+    return (DAY_START_MINUTES - clock_minutes) % MINUTES_PER_DAY
+
+
+def _departure_waits(
+    clock_minutes: float, leg_minutes: float, rest_allowed: bool,
+) -> tuple[float, ...]:
+    """Waits available before the next leg, preferred option first.
+
+    Nobody departs at night or drives through a whole night: such a leg first
+    rests until 07:00, from when any leg may start. Otherwise the driver leaves
+    at once or, when allowed, rests overnight until 07:00.
+    """
+    wait = _wait_until_morning(clock_minutes)
+    if not is_day(clock_minutes) or 0 < wait <= leg_minutes:
+        return (wait,)
+    return (0.0, wait) if rest_allowed and wait > 0 else (0.0,)
 
 
 def _arrival_risk(city: City, arrival_minutes: float) -> float:
@@ -219,21 +260,26 @@ class Visit:
     arrival_minutes: float  # Includes whole days after departure.
     leg_distance_km: float
     arrival_risk: float | None  # None at the initial and final depot.
+    wait_minutes: float  # Rest before the next leg; 0 at the final depot.
+    rest: str | None  # Mandatory "night"/"long leg", optional "chosen", or None.
 
 
 @dataclass(frozen=True, slots=True)
 class TourEvaluation:
     tour: tuple[int, ...]  # City indices, including depot at both ends.
     visits: tuple[Visit, ...]
+    rest_stops: tuple[int, ...]  # Tour positions where the driver rests, of either kind.
     total_distance_km: float
     total_risk: float
+    total_time_minutes: float  # Departure to final depot arrival, including rests.
+    total_wait_minutes: float
     distance_scaled: float
     risk_scaled: float
+    time_scaled: float
     cost: float
 
 
-def evaluate_tour(problem: RoutingProblem, tour: Sequence[int]) -> TourEvaluation:
-    """Validate and freshly evaluate a complete tour; suitable for future 2-opt."""
+def _validated_route(problem: RoutingProblem, tour: Sequence[int]) -> tuple[int, ...]:
     route = tuple(tour)
     size = len(problem.cities)
     if (len(route) != size + 1
@@ -241,21 +287,133 @@ def evaluate_tour(problem: RoutingProblem, tour: Sequence[int]) -> TourEvaluatio
             or route[0] != problem.depot or route[-1] != problem.depot
             or set(route[:-1]) != set(range(size))):
         raise ValueError("tour must start/end at the depot and visit every other city exactly once")
-    visits = [Visit(problem.cities[problem.depot], problem.departure_minutes, 0.0, None)]
-    distance = risk = 0.0
-    for step, (first, second) in enumerate(zip(route, route[1:]), start=1):
-        leg = problem.distances_km[first][second]
-        distance += leg
-        arrival = _arrival_minutes(problem, distance)
-        arrival_risk = None if step == size else _arrival_risk(problem.cities[second], arrival)
-        if arrival_risk is not None:
-            risk += arrival_risk
-        visits.append(Visit(problem.cities[second], arrival, leg, arrival_risk))
+    return route
+
+
+def schedule_tour(
+    problem: RoutingProblem, tour: Sequence[int], rest_stops: Sequence[int] = (),
+) -> TourEvaluation:
+    """Evaluate a tour with overnight rests at the given tour positions.
+
+    Mandatory rests (at night, or before a leg that would run through a
+    night) happen whether listed or not. An optional rest may be listed at any
+    position except the last stop before the return.
+    Local time is tracked as the segment start (departure, or 07:00 after a
+    rest) plus minutes driven since, exactly as in Beam Search, so both
+    classify boundary arrivals identically.
+    """
+    route = _validated_route(problem, tour)
+    size = len(problem.cities)
+    chosen = set(rest_stops)
+    if any(type(position) is not int or not 0 <= position < size for position in chosen):
+        raise ValueError("rest stops must be tour positions before the return leg")
+    segment_start = segment_base = problem.departure_minutes  # Local and absolute start.
+    driven = distance = risk = waited = 0.0
+    visits: list[Visit] = []
+    rests: list[int] = []
+    for position, city_index in enumerate(route):
+        leg = arrival_risk = None
+        if position:
+            leg = problem.distances_km[route[position - 1]][city_index]
+            distance += leg
+            driven += _drive_minutes(leg)
+            if position < size:
+                arrival_risk = _arrival_risk(problem.cities[city_index], segment_start + driven)
+                risk += arrival_risk
+        arrival = segment_base + driven
+        if position == size:
+            visits.append(Visit(problem.cities[city_index], arrival, leg, None, 0.0, None))
+            break
+        clock = segment_start + driven
+        next_leg = _drive_minutes(problem.distances_km[city_index][route[position + 1]])
+        waits = _departure_waits(clock, next_leg, position < size - 1)
+        if position == size - 1 and position in chosen and waits[0] == 0:
+            raise ValueError("an optional rest is not allowed before the return leg")
+        wait = waits[-1] if len(waits) == 1 or position in chosen else 0.0
+        rest = None
+        if wait > 0:
+            rest = "chosen" if len(waits) == 2 else "night" if not is_day(clock) else "long leg"
+            rests.append(position)
+            # Snap to the exact 07:00 instant so long tours accumulate no drift.
+            segment_base = DAY_START_MINUTES + MINUTES_PER_DAY * round(
+                (arrival + wait - DAY_START_MINUTES) / MINUTES_PER_DAY)
+            wait = segment_base - arrival
+            waited += wait
+            segment_start, driven = float(DAY_START_MINUTES), 0.0
+        visits.append(Visit(problem.cities[city_index], arrival, leg or 0.0, arrival_risk, wait, rest))
+    elapsed = visits[-1].arrival_minutes - problem.departure_minutes
     return TourEvaluation(
-        tour=route, visits=tuple(visits), total_distance_km=distance, total_risk=risk,
-        distance_scaled=distance / problem.distance_divisor_km,
-        risk_scaled=risk / problem.risk_divisor, cost=problem.cost(distance, risk),
+        tour=route, visits=tuple(visits), rest_stops=tuple(rests),
+        total_distance_km=distance, total_risk=risk, total_time_minutes=elapsed,
+        total_wait_minutes=waited, distance_scaled=distance / problem.distance_divisor_km,
+        risk_scaled=risk / problem.risk_divisor,
+        time_scaled=elapsed / problem.time_divisor_minutes,
+        cost=problem.cost(distance, risk, elapsed),
     )
+
+
+def _best_rest_stops(problem: RoutingProblem, route: tuple[int, ...]) -> tuple[int, ...]:
+    """Choose the cheapest overnight rests for a fixed tour in O(n^2) time.
+
+    Every rest ends at 07:00, so the best continuation after resting at a
+    position is independent of the day and is computed once (dynamic
+    programming from the end of the tour). Ties prefer driving on.
+    """
+    size = len(problem.cities)
+    time_weight = problem.beta / problem.time_divisor_minutes
+    risk_weight = problem.risk_weight / problem.risk_divisor
+    after_rest = [0.0] * size  # Best cost leaving route[k] at 07:00.
+    next_rest: list[int | None] = [None] * size
+
+    def drive(start: int, segment_start: float) -> tuple[float, int | None]:
+        """Cheapest remaining cost and first rest when leaving route[start] now."""
+        best_cost, best_rest = math.inf, None
+        driven = risk = 0.0
+        for position in range(start + 1, size + 1):
+            driven += _drive_minutes(problem.distances_km[route[position - 1]][route[position]])
+            clock = segment_start + driven
+            if position == size:
+                cost = risk_weight * risk + time_weight * driven
+                if cost <= best_cost:
+                    best_cost, best_rest = cost, None
+                break
+            risk += _arrival_risk(problem.cities[route[position]], clock)
+            next_leg = _drive_minutes(problem.distances_km[route[position]][route[position + 1]])
+            waits = _departure_waits(clock, next_leg, position < size - 1)
+            if waits[-1] > 0:
+                cost = (risk_weight * risk + time_weight * (driven + waits[-1])
+                        + after_rest[position])
+                if cost <= best_cost:
+                    best_cost, best_rest = cost, position
+            if waits[0] > 0:  # The rest is mandatory.
+                break
+        return best_cost, best_rest
+
+    for position in range(size - 1, -1, -1):
+        after_rest[position], next_rest[position] = drive(position, DAY_START_MINUTES)
+    first_leg = _drive_minutes(problem.distances_km[route[0]][route[1]])
+    waits = _departure_waits(problem.departure_minutes, first_leg, rest_allowed=True)
+    rest: int | None = None
+    if waits[-1] > 0:
+        best_cost, rest = time_weight * waits[-1] + after_rest[0], 0
+    if waits[0] == 0:
+        cost, first = drive(0, problem.departure_minutes)
+        if waits[-1] == 0 or cost <= best_cost:
+            rest = first
+    rests: list[int] = []
+    while rest is not None:
+        rests.append(rest)
+        rest = next_rest[rest]
+    return tuple(rests)
+
+
+def evaluate_tour(problem: RoutingProblem, tour: Sequence[int]) -> TourEvaluation:
+    """Validate a complete tour and evaluate it with its cheapest rest schedule.
+
+    Suitable for 2-opt: the result depends only on the tour order.
+    """
+    route = _validated_route(problem, tour)
+    return schedule_tour(problem, route, _best_rest_stops(problem, route))
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +422,9 @@ class _State:
     visited: int  # Bit i records whether city index i has been visited.
     distance_km: float
     risk: float
+    elapsed_minutes: float  # Since departure, including rests.
+    segment_start: float  # Local departure time, or 07:00 after the latest rest.
+    driven_minutes: float  # Since segment_start; local clock = start + driven.
     parent: _State | None
 
 
@@ -280,44 +441,62 @@ class BeamSearchResult:
 def beam_search(problem: RoutingProblem, beam_width: int = 100) -> BeamSearchResult:
     """Keep the globally best W partial tours at each depth.
 
-    Rank prefixes by the weighted cost accumulated so far, using the complete
-    instance's scales. At the last depth include the return distance BEFORE
-    pruning. This is a heuristic, without an optimality guarantee for finite W.
-    States with the same visited set/current city are deliberately not merged:
-    different distances imply different arrival times and future risks.
+    Each extension either leaves at once or first rests until 07:00 (mandatory
+    at night or before a leg that would run through a night). Prefixes are ranked by the weighted cost accumulated so far, using
+    the complete instance's scales; at the last depth the return leg, including
+    any night rest before it, is added BEFORE pruning. This is a heuristic,
+    without an optimality guarantee for finite W. States with the same visited
+    set/current city are deliberately not merged: different clocks imply
+    different future risks. The final tour is re-evaluated with its cheapest
+    rest schedule.
     """
     if type(beam_width) is not int or beam_width < 1:
         raise ValueError("beam_width must be a positive integer")
     started = time.perf_counter()
     size = len(problem.cities)
-    beam = [_State(problem.depot, 1 << problem.depot, 0.0, 0.0, None)]
+    beam = [_State(problem.depot, 1 << problem.depot, 0.0, 0.0, 0.0,
+                   problem.departure_minutes, 0.0, None)]
     serial = itertools.count()
     expanded = generated = 0
     peak = 1
 
-    def candidates(frontier: list[_State], close_tour: bool) -> Iterator[tuple[float, int, _State]]:
+    def candidates(frontier: list[_State], close_tour: bool) -> Iterator[tuple[float, float, int, _State]]:
         nonlocal generated
         for state in frontier:
+            clock = state.segment_start + state.driven_minutes
             for following in range(size):  # Cities have a stable GeoNameID order.
                 if state.visited & (1 << following):
                     continue
-                distance = state.distance_km + problem.distances_km[state.current][following]
-                risk = state.risk + _arrival_risk(
-                    problem.cities[following], _arrival_minutes(problem, distance),
-                )
-                child = _State(following, state.visited | (1 << following), distance, risk, state)
-                ranked_distance = distance
-                if close_tour:
-                    ranked_distance += problem.distances_km[following][problem.depot]
-                generated += 1
-                # The serial gives deterministic ties without comparing state objects.
-                yield problem.cost(ranked_distance, risk), next(serial), child
+                leg = problem.distances_km[state.current][following]
+                # Every leg generated here ends at a scored stop, so a rest is allowed.
+                for wait in _departure_waits(clock, _drive_minutes(leg), rest_allowed=True):
+                    segment_start, driven = ((state.segment_start, state.driven_minutes) if wait == 0
+                                             else (float(DAY_START_MINUTES), 0.0))
+                    driven += _drive_minutes(leg)
+                    arrival = segment_start + driven
+                    child = _State(
+                        following, state.visited | (1 << following), state.distance_km + leg,
+                        state.risk + _arrival_risk(problem.cities[following], arrival),
+                        state.elapsed_minutes + wait + _drive_minutes(leg),
+                        segment_start, driven, state,
+                    )
+                    ranked_distance, ranked_elapsed = child.distance_km, child.elapsed_minutes
+                    if close_tour:
+                        back = problem.distances_km[following][problem.depot]
+                        ranked_distance += back
+                        back_minutes = _drive_minutes(back)
+                        ranked_elapsed += _departure_waits(arrival, back_minutes, False)[0] + back_minutes
+                    generated += 1
+                    # Equal costs prefer the earlier clock; the serial then gives
+                    # deterministic ties without comparing state objects.
+                    yield (problem.cost(ranked_distance, child.risk, ranked_elapsed),
+                           ranked_elapsed, next(serial), child)
 
     for depth in range(1, size):
         expanded += len(beam)
         # The iterator avoids storing every candidate in a separate list.
         kept = heapq.nsmallest(beam_width, candidates(beam, close_tour=depth == size - 1))
-        beam = [entry[2] for entry in kept]
+        beam = [entry[3] for entry in kept]
         peak = max(peak, len(beam))
 
     route: list[int] = []
@@ -377,6 +556,11 @@ def format_arrival(minutes: float) -> str:
     return f"D+{day} {hour:02d}:{minute:02d}:{second:02d}"
 
 
+def format_duration(minutes: float) -> str:
+    hours, minute = divmod(math.floor(minutes), 60)
+    return f"{hours}:{minute:02d}"
+
+
 def result_as_dict(problem: RoutingProblem, result: BeamSearchResult) -> dict:
     """Export the instance, objective, route and search statistics for experiments."""
     evaluation = result.evaluation
@@ -386,31 +570,38 @@ def result_as_dict(problem: RoutingProblem, result: BeamSearchResult) -> dict:
             "selected_geonameids": [city.geonameid for city in problem.cities],
             "depot_geonameid": problem.cities[problem.depot].geonameid,
             "departure_minutes": problem.departure_minutes, "timezone": "Asia/Kuala_Lumpur",
-            "speed_kmh": SPEED_KMH, "service_minutes": 0, "waiting_allowed": False,
+            "speed_kmh": SPEED_KMH, "service_minutes": 0, "rest_policy": REST_POLICY,
             "day_window": "07:00 <= local time < 19:00", "depot_return_risk_charged": False,
             "distance_model": "Haversine", "earth_radius_km": EARTH_RADIUS_KM,
         },
         "objective": {
-            "alpha": problem.alpha,
-            "normalisation": "distance / (n * max_pairwise_distance); risk / (100 * (n - 1))",
+            "alpha": problem.alpha, "beta": problem.beta, "risk_weight": problem.risk_weight,
+            "normalisation": ("distance / (n * max_pairwise_distance); risk / (100 * (n - 1)); "
+                              "time / (n * (max_leg_minutes + 1440))"),
             "distance_divisor_km": problem.distance_divisor_km,
             "risk_divisor": problem.risk_divisor,
+            "time_divisor_minutes": problem.time_divisor_minutes,
             "total_distance_km": evaluation.total_distance_km, "total_risk": evaluation.total_risk,
+            "total_time_minutes": evaluation.total_time_minutes,
+            "total_wait_minutes": evaluation.total_wait_minutes,
             "distance_scaled": evaluation.distance_scaled, "risk_scaled": evaluation.risk_scaled,
-            "cost": evaluation.cost,
+            "time_scaled": evaluation.time_scaled, "cost": evaluation.cost,
         },
         "search": {
             "beam_width": result.beam_width, "expanded_states": result.expanded_states,
             "generated_states": result.generated_states, "peak_beam_size": result.peak_beam_size,
             "runtime_seconds": result.runtime_seconds,
-            "ranking": "accumulated weighted cost; return distance included at final depth",
-            "tie_breaking": "generation order, expanding cities in ascending GeoNameID order",
+            "ranking": ("accumulated weighted cost; return leg and any night rest before it "
+                        "included at final depth; final tour re-evaluated with optimal rests"),
+            "tie_breaking": ("earlier elapsed time, then generation order, expanding cities in "
+                             "ascending GeoNameID order and leaving now before resting"),
         },
         "route": [
             {"geonameid": visit.city.geonameid, "name": visit.city.name,
              "arrival_minutes": visit.arrival_minutes, "arrival_local": format_arrival(visit.arrival_minutes),
              "period": "day" if is_day(visit.arrival_minutes) else "night",
-             "leg_distance_km": visit.leg_distance_km, "arrival_risk": visit.arrival_risk}
+             "leg_distance_km": visit.leg_distance_km, "arrival_risk": visit.arrival_risk,
+             "rest": visit.rest, "wait_minutes": visit.wait_minutes}
             for visit in evaluation.visits
         ],
     }
@@ -422,14 +613,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--depot", default="1735161", help="depot name or GeoNameID (default: Kuala Lumpur)")
     parser.add_argument("--cities", nargs="+", help="selected city names/IDs; depot is included automatically (default: all)")
     parser.add_argument("--departure", type=parse_departure, default=8 * 60.0, help="local HH:MM (default: 08:00)")
-    parser.add_argument("--alpha", type=float, default=0.5, help="distance weight in [0, 1] (default: 0.5)")
+    parser.add_argument("--alpha", type=float, default=0.4, help="distance weight in [0, 1] (default: 0.4)")
+    parser.add_argument("--beta", type=float, default=0.2,
+                        help="elapsed-time weight; risk gets 1 - alpha - beta (default: 0.2)")
     parser.add_argument("--beam-width", type=int, default=100, help="positive number of retained states (default: 100)")
     parser.add_argument("--output", type=Path, help="also save route and reproducibility metadata as JSON")
     args = parser.parse_args(argv)
     try:
         cities = load_cities(args.data)
         depot = resolve_city(cities, args.depot)
-        problem = make_problem(select_cities(cities, depot, args.cities), depot.geonameid, args.departure, args.alpha)
+        problem = make_problem(select_cities(cities, depot, args.cities), depot.geonameid, args.departure,
+                               args.alpha, args.beta)
         result = beam_search(problem, args.beam_width)
         if args.output is not None:
             payload = result_as_dict(problem, result)
@@ -444,18 +638,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     evaluation = result.evaluation
     print(f"Safety-Aware Beam Search | cities={len(problem.cities)} | beam width={result.beam_width}")
     print(f"Depot: {depot.name} ({depot.geonameid}) | departure: {format_arrival(problem.departure_minutes)}")
-    print(f"Cost = {problem.alpha:g} * distance_scaled + {1 - problem.alpha:g} * risk_scaled")
+    print(f"Cost = {problem.alpha:g} * distance_scaled + {problem.beta:g} * time_scaled"
+          f" + {problem.risk_weight:g} * risk_scaled")
     print(f"Distance: {evaluation.total_distance_km:.3f} km | scaled: {evaluation.distance_scaled:.6f}")
+    print(f"Trip time: {format_duration(evaluation.total_time_minutes)} h, including"
+          f" {format_duration(evaluation.total_wait_minutes)} h resting | scaled: {evaluation.time_scaled:.6f}")
     print(f"Arrival risk: {evaluation.total_risk:.2f} | scaled: {evaluation.risk_scaled:.6f}")
     print(f"Combined cost: {evaluation.cost:.6f}")
-    print(f"Scaling divisors: distance={problem.distance_divisor_km:.6f} km; risk={problem.risk_divisor:g}")
+    print(f"Scaling divisors: distance={problem.distance_divisor_km:.6f} km; risk={problem.risk_divisor:g};"
+          f" time={problem.time_divisor_minutes:.3f} min")
     print(f"Search: {result.expanded_states} expanded, {result.generated_states} generated, {result.runtime_seconds:.6f} s")
-    print(f"\n{'Stop':>4}  {'City (GeoNameID)':<36} {'Local arrival':<16} {'Period':<5} {'Leg km':>10} {'Risk':>8}")
+    print(f"\n{'Stop':>4}  {'City (GeoNameID)':<36} {'Local arrival':<16} {'Period':<5} {'Leg km':>10} {'Risk':>8}"
+          f"  Rest before leaving")
     for index, visit in enumerate(evaluation.visits):
         label = f"{visit.city.name} ({visit.city.geonameid})"
         risk = "-" if visit.arrival_risk is None else f"{visit.arrival_risk:.2f}"
         period = "day" if is_day(visit.arrival_minutes) else "night"
-        print(f"{index:>4}  {label:<36} {format_arrival(visit.arrival_minutes):<16} {period:<5} {visit.leg_distance_km:>10.3f} {risk:>8}")
+        rest = "-" if visit.rest is None else f"{format_duration(visit.wait_minutes)} h ({visit.rest})"
+        print(f"{index:>4}  {label:<36} {format_arrival(visit.arrival_minutes):<16} {period:<5}"
+              f" {visit.leg_distance_km:>10.3f} {risk:>8}  {rest}")
     if args.output is not None:
         print(f"\nSaved JSON: {args.output}")
     return 0
