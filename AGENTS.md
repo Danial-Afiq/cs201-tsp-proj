@@ -19,18 +19,18 @@ The two proposed redesigned approaches are:
 
 They are intended to differ meaningfully in algorithm and data structure design. Their detailed implementations remain open to experimentation and justification.
 
-**Current status (2026-10-28):** `data/processed/cities_cleaned.csv` is a validated 43-row master dataset. `beam_search.py` implements CSV validation, problem construction, a reusable full-tour evaluator, Safety-Aware Beam Search, and a CLI with JSON export. All 23 tests in `tests/test_beam_search.py` pass, including small-instance exhaustive-reference checks. 2-opt, comparative experiments, and benchmark results remain unimplemented. Do not describe correctness checks as completed experiments.
+**Current status (2026-10-29):** `data/processed/cities_cleaned.csv` is a validated 43-row master dataset. `beam_search.py` implements CSV validation, problem construction, a reusable full-tour evaluator with optimal overnight-rest scheduling, Safety-Aware Beam Search, and a CLI with JSON export. All 26 tests in `tests/test_beam_search.py` pass, including small-instance exhaustive-reference checks. 2-opt, comparative experiments, and benchmark results remain unimplemented. Do not describe correctness checks as completed experiments.
 
 ## Agreed problem model
 
 Keep these decisions consistent across implementations and documentation:
 
 1. Choose one depot for a problem instance. Visit every selected non-depot location exactly once and return to the depot.
-2. Use the weighted objective `C = alpha * D_scaled + (1 - alpha) * R_scaled`, with `0 <= alpha <= 1`.
+2. Use the weighted objective `C = alpha * D_scaled + beta * T_scaled + (1 - alpha - beta) * R_scaled`, with `alpha, beta >= 0` and `alpha + beta <= 1`. `T` is elapsed time from departure to final depot arrival, including rests. The time term keeps optional rests from being free; without it, avoidable night arrivals vanish and risk becomes nearly route-independent.
 3. Use the stored Numbeo scores: `day_risk = 100 - day_safety` and `night_risk = 100 - night_safety`.
 4. Select risk from the arrival time at each non-depot destination. Do not charge another arrival risk for the final return to the depot.
 5. Day is `07:00 <= local time < 19:00`; night is `19:00 <= local time` or `local time < 07:00`.
-6. Travel speed is a constant 60 km/h. Service time is zero. The driver leaves immediately and cannot wait for daylight.
+6. Travel speed is a constant 60 km/h. Service time is zero. Rests always last until the next 07:00. A rest is mandatory before departing at night and before a leg that would still be underway at the next 07:00 (from 07:00 itself any leg may start), so the driver never drives through a whole night. By day, before any leg except the return, an optional rest may be taken. For a fixed tour, the evaluator chooses the optional rests that minimise cost. This replaced the earlier team decision of no waiting (2026-10-29), which let routes drive through the night on long legs.
 7. Compute geographical distance from the stored WGS84 coordinates using Haversine distance. Treat it as a simplified model rather than road distance.
 8. Recompute downstream arrival times and risks whenever route order changes. Handle midnight, multi-day travel, and day/night boundaries correctly.
 
@@ -38,9 +38,9 @@ Crime Index is contextual data and is not a substitute for day or night arrival 
 
 ## Normalisation
 
-The implemented definitions are `D_scaled = D / (n * d_max)` and `R_scaled = R / (100 * (n - 1))`, where `n` includes the depot and `d_max` is the maximum pairwise Haversine distance for the selected instance. If `d_max` is zero, use distance divisor 1 km (all routes then have zero distance). These are implementation choices, not lecturer requirements. Divisors are fixed across candidate routes and must be shared by all algorithms compared on the same instance. See `docs/beam_search.md`.
+The implemented definitions are `D_scaled = D / (n * d_max)`, `R_scaled = R / (100 * (n - 1))`, and `T_scaled = T / (n * (d_max_minutes + 1440))`, where `n` includes the depot, `d_max` is the maximum pairwise Haversine distance for the selected instance, and `d_max_minutes` is its driving time (each of the `n` departures waits under a day). If `d_max` is zero, use distance divisor 1 km (all routes then have zero distance). These are implementation choices, not lecturer requirements. Divisors are fixed across candidate routes and must be shared by all algorithms compared on the same instance. See `docs/beam_search.md`.
 
-Do not hard-code a normalisation constant derived from one temporary subset as a permanent project rule. Report raw distance and risk alongside scaled components so results remain interpretable. If the normalisation design changes, update the evaluator, tests, experiment metadata, and documentation together.
+Do not hard-code a normalisation constant derived from one temporary subset as a permanent project rule. Report raw distance, risk, and trip time alongside scaled components so results remain interpretable. If the normalisation design changes, update the evaluator, tests, experiment metadata, and documentation together.
 
 ## Master dataset
 
@@ -82,11 +82,11 @@ Important resolved aliases include Ampang Jaya to Ampang `1735168`, Bandar Pengg
 
 The current algorithm names and high-level ideas are team decisions. Internal structures and heuristics remain proposals until implemented and tested.
 
-For 2-opt, a valid initial tour, segment-reversal policy, improvement strategy, tie handling, and stopping rule may be chosen based on evidence. Re-evaluate the full affected route logic because arrival-time risk can change after a move.
+For 2-opt, a valid initial tour, segment-reversal policy, improvement strategy, tie handling, and stopping rule may be chosen based on evidence. Re-evaluate the full affected route logic because arrival times, rests, and risks can change after a move.
 
-For Beam Search, state fields, ranking, pruning, deduplication, reconstruction, and beam-width handling may be refined. Partial states that reach the same city after visiting the same set are not automatically equivalent if their arrival times differ.
+For Beam Search, state fields, ranking, pruning, deduplication, reconstruction, and beam-width handling may be refined. Partial states that reach the same city after visiting the same set are not automatically equivalent if their clocks differ.
 
-The current implementation stores current-city index, visited bit mask, accumulated distance/risk, and a parent pointer. Arrival time is derived from accumulated distance. It streams candidates through `heapq.nsmallest`, ranks prefixes by accumulated scaled cost, and includes closure distance before final pruning. Ties use deterministic generation order with city expansion in ascending GeoNameID order. It does not deduplicate partial states. `make_problem()` and `evaluate_tour()` are reusable by the future 2-opt implementation.
+The current implementation stores current-city index, visited bit mask, accumulated distance/risk/elapsed time, the current segment's start time and minutes driven since it, and a parent pointer. Each extension branches on leaving now or resting until 07:00 (only one option when the rest is mandatory or unavailable). It streams candidates through `heapq.nsmallest`, ranks prefixes by accumulated scaled cost, and includes the return leg and any mandatory rest before it before final pruning. Ties prefer less elapsed time, then deterministic generation order with city expansion in ascending GeoNameID order. It does not deduplicate partial states. The winning tour is re-evaluated by `evaluate_tour()`, which finds its cheapest rests with an O(n^2) dynamic program. This works because every rest ends at 07:00, so the best continuation after a rest does not depend on the day. `make_problem()`, `evaluate_tour()`, and `schedule_tour()` are reusable by the future 2-opt implementation; note that each full re-evaluation costs O(n^2).
 
 Arrays, lists, matrices, bit sets, priority queues, parent pointers, and other structures are options rather than mandatory choices. Select structures that serve the final algorithm and explain their time and space costs. Do not add a data structure solely to make the project look more complex.
 
@@ -96,8 +96,8 @@ Shared evaluation logic is strongly preferred so both approaches use the same di
 
 - Inspect the repository before editing and keep changes within the requested scope.
 - Prefer small, testable components and standard-library dependencies where practical.
-- Reject invalid `alpha`, malformed rows, duplicate IDs, missing required values, impossible coordinates, and invalid tours with clear errors.
-- Test route validity, risk complements, Haversine symmetry and zero diagonal, day/night cutoffs, midnight and multi-day travel, zero service time, no waiting, and final-depot handling.
+- Reject invalid `alpha` or `beta`, malformed rows, duplicate IDs, missing required values, impossible coordinates, and invalid tours with clear errors.
+- Test route validity, risk complements, Haversine symmetry and zero diagonal, day/night cutoffs, midnight and multi-day travel, zero service time, mandatory and optional rests, optimality of the rest schedule for a fixed tour, and final-depot handling.
 - Test both algorithms with the same instances and evaluator. Include edge cases such as two-city instances, ties, equal day/night scores, all-day or all-night arrivals, and low beam widths.
 - Check that changing route order changes downstream times without changing source data.
 - Use deterministic seeds or tie rules when reproducibility requires them.
@@ -106,7 +106,7 @@ Shared evaluation logic is strongly preferred so both approaches use the same di
 
 ## Experiments
 
-Experiment design is not final. Reasonable studies may vary subset size, region, depot, departure time, `alpha`, beam width, 2-opt choices, or normalisation. Each comparison must hold the problem instance and scoring rules constant across algorithms.
+Experiment design is not final. Reasonable studies may vary subset size, region, depot, departure time, `alpha`, `beta`, beam width, 2-opt choices, or normalisation. Each comparison must hold the problem instance and scoring rules constant across algorithms.
 
 Record enough metadata to reproduce each run: dataset version, selected GeoNameIDs, depot, departure time, speed, day/night definition, scaling method, parameters, implementation version, and random seed when relevant.
 
