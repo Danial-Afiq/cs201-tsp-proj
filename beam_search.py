@@ -1,8 +1,8 @@
 """Safety-aware day/night TSP using only the Python standard library.
 
 Run ``python3 beam_search.py --help`` for command-line options. Data loading,
-problem construction and evaluate_tour() are independent of the search so a
-future 2-opt implementation can use exactly the same model and objective.
+problem construction and evaluate_tour() are independent of the search, and
+two_opt.py reuses them so both approaches share one model and objective.
 """
 
 from __future__ import annotations

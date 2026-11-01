@@ -2,7 +2,7 @@
 
 CS201 Data Structures & Algorithms project for *Beyond the Classic TSP*.
 
-> **Current status (2026-10-29):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, CSV validation, a reusable tour evaluator with overnight-rest scheduling, and a command-line runner are implemented. All 26 automated tests pass, including exhaustive-reference checks on small instances. Safety-Aware 2-opt and comparative experiments remain unimplemented.
+> **Current status (2026-11-01):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, Safety-Aware 2-opt, CSV validation, a shared tour evaluator with overnight-rest scheduling, and a command-line runner for each algorithm are implemented. All 49 automated tests pass, including exhaustive-reference checks on small instances. Comparative experiments remain unimplemented.
 
 The official [project brief](docs/Project_2627T1.pdf) is the authority for assignment requirements. This README explains our current project direction and data decisions. It does not add requirements to the brief.
 
@@ -23,7 +23,7 @@ The presentation must cover the motivation, variant inputs and constraints, rede
 
 A delivery driver carrying valuable goods must visit a chosen set of Malaysian locations once and return to a depot. A shortest-distance route may reach some locations at night, when the reported perception of safety is lower. Our proposed variant therefore considers both geographical distance and arrival-time-dependent safety.
 
-The Beam Search output is a closed tour, its total distance, arrival times, total arrival risk, scaled distance and risk components, and combined cost. Its command-line runner accepts a depot and a subset from the master dataset. The CSV order is not a route.
+Each algorithm outputs a closed tour, its total distance, arrival times, total arrival risk, scaled distance and risk components, and combined cost. Their command-line runners accept a depot and a subset from the master dataset. The CSV order is not a route.
 
 ## Solution approaches
 
@@ -32,7 +32,7 @@ The Beam Search output is a closed tour, its total distance, arrival times, tota
 | Safety-Aware 2-opt | Start from a valid tour and reverse route segments when the shared objective improves. | Simple local improvement and easy to explain. | May stop at a local optimum and may depend on the starting tour. |
 | Safety-Aware Beam Search | Build routes in stages while retaining several promising partial routes. | Explores several alternatives without exhaustive search. | Beam pruning can discard a better final route and performance depends on design choices. |
 
-Beam Search is implemented in [beam_search.py](beam_search.py); 2-opt remains a proposal. The team may refine the approaches after testing. Final implementations must remain meaningfully different, use the same problem definition, and be justified with complexity and experimental evidence. The [Beam Search design notes](docs/beam_search.md) explain the implemented structures, ranking, pseudocode, complexity, and limitations.
+Beam Search is implemented in [beam_search.py](beam_search.py) and 2-opt in [two_opt.py](two_opt.py). The team may refine the approaches after testing. Final implementations must remain meaningfully different, use the same problem definition, and be justified with complexity and experimental evidence. The [Beam Search design notes](docs/beam_search.md) and [2-opt design notes](docs/two_opt.md) explain the implemented structures, pseudocode, complexity, and limitations. The 2-opt notes also contain the current handover.
 
 A distance-only method such as Nearest Neighbor may be used as a baseline. It is not one of the two proposed redesigned solutions unless the team deliberately changes the project plan and documents why.
 
@@ -56,7 +56,7 @@ R_scaled = total non-depot arrival risk / (100 * (n - 1))
 T_scaled = elapsed minutes from departure to final depot arrival / (n * (d_max_minutes + 1440))
 ```
 
-A closed tour contains `n` legs and `n - 1` scored arrivals, and each of its `n` departures waits less than a day, so all three components lie between 0 and 1. `d_max_minutes` is the driving time of the longest pairwise leg. If all coordinates coincide, the distance divisor is set to 1 km and scaled distance is zero. These divisors stay fixed for every candidate route of an instance; they are not fitted to the current beam. Subsets have their own divisors, so compare algorithms on the same instance and report raw totals too. This scaling is an implementation choice, not a lecturer requirement, and future 2-opt comparisons must reuse it or change both approaches together.
+A closed tour contains `n` legs and `n - 1` scored arrivals, and each of its `n` departures waits less than a day, so all three components lie between 0 and 1. `d_max_minutes` is the driving time of the longest pairwise leg. If all coordinates coincide, the distance divisor is set to 1 km and scaled distance is zero. These divisors stay fixed for every candidate route of an instance; they are not fitted to the current beam. Subsets have their own divisors, so compare algorithms on the same instance and report raw totals too. This scaling is an implementation choice, not a lecturer requirement. 2-opt reuses it through `make_problem()`, so any change must apply to both approaches.
 
 The team has agreed on these modelling assumptions:
 
@@ -96,12 +96,29 @@ python3 -m unittest discover -s tests -v
 
 The arrival table shows each rest and its kind: `night` (mandatory at night), `long leg` (mandatory before a leg that would run through a night) or `chosen` (optional). The implementation branches on leaving now or resting, ranks partial routes by accumulated weighted cost, and includes the return leg before the final pruning step. The final tour is re-evaluated with its cheapest rest schedule. It is a heuristic and does not guarantee an optimal tour. The tests are correctness checks, not a completed comparative experiment study.
 
-Current implementation files:
+## Running 2-opt
+
+The instance options and their defaults are the same as for Beam Search. From the repository root:
+
+```bash
+python3 two_opt.py --depot "Kuala Lumpur" \
+  --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" \
+  --departure 18:00 --alpha 0.4 --beta 0.2 --strategy best --initial nearest-neighbor
+```
+
+`--strategy` is `best` (cheapest reversal of each full scan, the default) or `first` (first improving reversal). `--initial` is `nearest-neighbor` (the default) or `id-order`. These defaults are not tuned. `--output result.json` saves the same reproducibility metadata as Beam Search, plus the 2-opt settings, move counts, and starting tour.
+
+The search holds one complete tour and reverses a segment of its stops whenever that lowers the shared cost. Every candidate is scored by `evaluate_tour()` with its own cheapest rest schedule, because a reversal can change arrivals and rests beyond the segment. The search stops at a local optimum, so it does not guarantee an optimal tour.
+
+## Implementation files
 
 ```text
-beam_search.py                  Loader, instance builder, evaluator, search, CLI
-tests/test_beam_search.py        Model and search correctness checks
-docs/beam_search.md              Implemented algorithm and complexity
+beam_search.py                  Loader, instance builder, evaluator, Beam Search, CLI
+two_opt.py                      2-opt search and CLI, using the shared model
+tests/test_beam_search.py        Model and Beam Search correctness checks
+tests/test_two_opt.py            2-opt correctness checks
+docs/beam_search.md              Beam Search algorithm and complexity
+docs/two_opt.md                  2-opt algorithm, complexity, and handover
 docs/Project_2627T1.pdf          Official assignment brief
 data/processed/cities_cleaned.csv  Unmodified 43-location master dataset
 ```
