@@ -19,7 +19,7 @@ The two proposed redesigned approaches are:
 
 They are intended to differ meaningfully in algorithm and data structure design. Their detailed implementations remain open to experimentation and justification.
 
-**Current status (2026-10-29):** `data/processed/cities_cleaned.csv` is a validated 43-row master dataset. `beam_search.py` implements CSV validation, problem construction, a reusable full-tour evaluator with optimal overnight-rest scheduling, Safety-Aware Beam Search, and a CLI with JSON export. All 26 tests in `tests/test_beam_search.py` pass, including small-instance exhaustive-reference checks. 2-opt, comparative experiments, and benchmark results remain unimplemented. Do not describe correctness checks as completed experiments.
+**Current status (2026-11-01):** `data/processed/cities_cleaned.csv` is a validated 43-row master dataset. `beam_search.py` implements CSV validation, problem construction, a reusable full-tour evaluator with optimal overnight-rest scheduling, Safety-Aware Beam Search, and a CLI with JSON export. All 35 tests in `tests/` pass, including small-instance exhaustive-reference checks. `lookahead_beam_search.py` is an experimental variant ranking prefixes by greedy completion; `experiments/lookahead_gap.py` measures its gap to brute force on 9-city Peninsular subsets (see `docs/beam_search.md`). 2-opt, comparative experiments with 2-opt, and benchmark results remain unimplemented. Do not describe correctness checks as completed experiments.
 
 ## Agreed problem model
 

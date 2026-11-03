@@ -122,4 +122,52 @@ python3 -m unittest discover -s tests -v
 
 Names and GeoNameIDs are accepted; the depot is automatically included. Without `--cities`, all 43 master records are selected. For realistic delivery experiments, choose and justify a regional subset rather than interpreting cross-sea Haversine legs as driving routes. A JSON output records the dataset SHA-256, selected IDs, model constants and rest policy, weights and scaling divisors, search parameters, implementation version, every arrival with its rest, raw/scaled totals, and search statistics.
 
-The 26 automated tests pass. They cover CSV validation and leading-zero administrative codes, Haversine checks, exact 07:00/19:00 boundaries, mandatory night and long-leg rests, optional rests that trade time for risk, return-depot handling, route-order effects, midnight/multi-day travel, coincident coordinates, objective endpoints with all three weights, valid tours and rest positions, deterministic ties, invalid inputs, and low beam widths. For every order of a five-city subset, under 12 departure/weight combinations, the evaluator's rest schedule matches brute force over all rest subsets. An unpruned beam matches the exhaustive optimal cost on a six-city subset for 15 departure/weight combinations. A 43-city smoke check produces a valid closed tour that never drives through a night. These checks do not establish the quality of a narrow beam or replace the required comparative experiments with 2-opt.
+The 26 tests in `tests/test_beam_search.py` pass. They cover CSV validation and leading-zero administrative codes, Haversine checks, exact 07:00/19:00 boundaries, mandatory night and long-leg rests, optional rests that trade time for risk, return-depot handling, route-order effects, midnight/multi-day travel, coincident coordinates, objective endpoints with all three weights, valid tours and rest positions, deterministic ties, invalid inputs, and low beam widths. For every order of a five-city subset, under 12 departure/weight combinations, the evaluator's rest schedule matches brute force over all rest subsets. An unpruned beam matches the exhaustive optimal cost on a six-city subset for 15 departure/weight combinations. A 43-city smoke check produces a valid closed tour that never drives through a night. These checks do not establish the quality of a narrow beam or replace the required comparative experiments with 2-opt.
+
+## Variant: greedy-completion lookahead
+
+`lookahead_beam_search.py` is an experimental variant for the "judges only the past" weakness. It keeps every part of the plain search and changes only the ranking key. Shared parts:
+
+- the state record and the extension step, `_extensions()`: each unvisited city, leaving now or after an overnight rest
+- global top-`W` selection
+- deterministic ties
+- the final `evaluate_tour()`
+
+Each candidate prefix is ranked by the cost of the closed tour obtained by finishing it greedily. From the prefix's last city and clock, repeatedly take the extension (next city, leaving now or after a rest) that gives the extended prefix the smallest weighted cost `alpha * D / D_div + beta * T / T_div + (1 - alpha - beta) * R / R_div`. Ties prefer less elapsed time, then the lowest city index, then leaving now. Then return to the depot, including any mandatory rest. This follows the global-evaluation idea of filtered beam search (Ow & Morton, 1989; Valente & Alves, 2004). At the last depth, the completion is just the return leg, so the final beam is ordered by exact closed-tour cost for the beam's own rest choices.
+
+Property: the greedy continuation of the best-ranked state is always a candidate at the next depth, with the same rank. So the best rank never increases, and the result is never worse than the greedy tour from the depot, for any `W`. A test checks this. It does not make wider beams monotone in general.
+
+Complexity: each of the `O(W * n^2)` candidates needs an `O(n^2)` completion (two departure options per city), so time is `O(W * n^4 + W * n^2 * log(W + 1))`. Storage is unchanged at `O(n^2 + W * n)`.
+
+```bash
+python3 lookahead_beam_search.py --depot "Kuala Lumpur" --cities Ipoh "Johor Bahru" Kuantan Malacca --departure 18:00 --beam-width 20
+python3 experiments/lookahead_gap.py --output lookahead_gap.json
+```
+
+`experiments/lookahead_gap.py` measures the gap to brute force. Brute force tries every stop order, each scored with its cheapest rests by `evaluate_tour()`. Setup:
+
+- **Pool:** the 19 Peninsular locations (excluding Sabah, Sarawak and Labuan) with at least 15 Numbeo contributors.
+- **Trials:** 200. Each samples 9 cities (the first is the depot) and a departure from 06:00, 10:00, 14:00 or 18:00.
+- **Parameters:** `alpha = 0.4`, `beta = 0.2`, seed 201.
+
+Output from the default run:
+
+| Method | W | Mean gap | Median gap | Max gap | Optimal | ms/run |
+| --- | --- | --- | --- | --- | --- | --- |
+| Plain | 1 | 6.07% | 4.47% | 26.27% | 4/200 | 0.20 |
+| Plain | 20 | 3.29% | 1.53% | 21.04% | 30/200 | 1.94 |
+| Plain | 100 | 2.30% | 0.94% | 19.41% | 48/200 | 8.17 |
+| Lookahead | 1 | 1.86% | 0.82% | 10.76% | 45/200 | 3.51 |
+| Lookahead | 20 | 0.53% | 0.00% | 6.89% | 111/200 | 38.39 |
+| Lookahead | 100 | 0.23% | 0.00% | 4.22% | 150/200 | 135.02 |
+
+Wider beams were sometimes worse than narrower ones:
+
+| Method | W=20 worse than W=1 | W=100 worse than W=20 |
+| --- | --- | --- |
+| Plain | 25/200 | 5/200 |
+| Lookahead | 4/200 | 1/200 |
+
+Lookahead W=1 is already better on average than plain W=100, but it is far slower per run. Runtimes are machine-dependent. These are small-instance results only; they are not a comparison with 2-opt.
+
+An earlier run under the previous no-rest model (`alpha = 0.5`, same pool and seed) gave plain 9.80% / 4.51% / 2.74% and lookahead 2.51% / 0.51% / 0.17% for W = 1 / 20 / 100. That run had no lookahead reversals. Its numbers describe a different problem and are kept only for context.

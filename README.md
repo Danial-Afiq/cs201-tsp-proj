@@ -2,7 +2,7 @@
 
 CS201 Data Structures & Algorithms project for *Beyond the Classic TSP*.
 
-> **Current status (2026-10-29):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, CSV validation, a reusable tour evaluator with overnight-rest scheduling, and a command-line runner are implemented. All 26 automated tests pass, including exhaustive-reference checks on small instances. Safety-Aware 2-opt and comparative experiments remain unimplemented.
+> **Current status (2026-11-01):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, CSV validation, a reusable tour evaluator with overnight-rest scheduling, and a command-line runner are implemented. All 35 automated tests pass, including exhaustive-reference checks on small instances. An experimental lookahead Beam Search variant and a small-instance gap experiment are also included. Safety-Aware 2-opt and comparative experiments remain unimplemented.
 
 The official [project brief](docs/Project_2627T1.pdf) is the authority for assignment requirements. This README explains our current project direction and data decisions. It does not add requirements to the brief.
 
@@ -100,7 +100,10 @@ Current implementation files:
 
 ```text
 beam_search.py                  Loader, instance builder, evaluator, search, CLI
+lookahead_beam_search.py        Experimental beam variant ranked by greedy completion
+experiments/lookahead_gap.py     Plain vs lookahead gap to brute force on 9-city subsets
 tests/test_beam_search.py        Model and search correctness checks
+tests/test_lookahead_beam_search.py  Lookahead variant checks
 docs/beam_search.md              Implemented algorithm and complexity
 docs/Project_2627T1.pdf          Official assignment brief
 data/processed/cities_cleaned.csv  Unmodified 43-location master dataset
