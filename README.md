@@ -1,267 +1,117 @@
 # SafeRoute: Safety-Aware Day/Night TSP
 
-CS201 Data Structures & Algorithms project for *Beyond the Classic TSP*.
+SafeRoute is an SMU CS201 redesign of the Traveling Salesperson Problem for a delivery driver visiting Malaysian locations. A valid tour starts and ends at one depot and visits every selected city exactly once. Unlike classic distance-only TSP, SafeRoute minimizes a weighted combination of normalized distance, elapsed journey time, and arrival risk. Risk changes with the arrival clock, so route order and overnight rests matter.
 
-> **Current status (2026-11-06):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, Safety-Aware 2-opt, an optional Lookahead Beam Search variant, CSV validation, a shared tour evaluator with overnight-rest scheduling, and a command-line runner for each algorithm are implemented. All 66 automated tests pass (26 Beam Search, 23 2-opt, 8 comparison-script checks, and 9 Lookahead checks). A comparison of 2-opt and ordinary Beam Search has been run; the numbers and run command are in [docs/two_opt.md](docs/two_opt.md). The separate small-instance Lookahead experiment is documented in [docs/beam_search.md](docs/beam_search.md).
+The default objective is **40% distance, 20% journey time, and 40% arrival risk** (`alpha=0.4`, `beta=0.2`). The 43-city processed dataset uses GeoNames as the primary geographic source and Numbeo day/night safety perceptions as supplementary attributes.
 
-The official [project brief](docs/Project_2627T1.pdf) is the authority for assignment requirements. This README explains our current project direction and data decisions. It does not add requirements to the brief.
+## Algorithms
 
-## What the assignment requires
-
-The project starts from the classic Travelling Salesperson Problem (TSP). Each team must identify a realistic assumption that the classic problem does not handle, define a corresponding TSP variant, and implement and evaluate at least two approaches that differ meaningfully in algorithm design, data structure design, or both.
-
-The brief requires the lecturer-provided GeoNames `MY.txt` file as the primary dataset. Section 5 asks teams to explain:
-
-1. the records selected and columns used;
-2. why the partial or augmented dataset was selected;
-3. the filtering or preprocessing performed; and
-4. the supplementary data or derived attributes added.
-
-The presentation must cover the motivation, variant inputs and constraints, redesigned approaches, pseudocode, complexity, experiments, trade-offs, limitations, findings, and acknowledged AI use.
-
-## Our proposed problem
-
-A delivery driver carrying valuable goods must visit a chosen set of Malaysian locations once and return to a depot. A shortest-distance route may reach some locations at night, when the reported perception of safety is lower. Our proposed variant therefore considers both geographical distance and arrival-time-dependent safety.
-
-Each algorithm outputs a closed tour, its total distance, arrival times, total arrival risk, scaled distance and risk components, and combined cost. Their command-line runners accept a depot and a subset from the master dataset. The CSV order is not a route.
-
-## Solution approaches
-
-| Approach | Main idea | Likely strengths | Likely limitations |
-| --- | --- | --- | --- |
-| Safety-Aware 2-opt | Start from a valid tour and reverse route segments when the shared objective improves. | Simple local improvement and easy to explain. | May stop at a local optimum and may depend on the starting tour. |
-| Safety-Aware Beam Search | Build routes in stages while retaining several promising partial routes. | Explores several alternatives without exhaustive search. | Beam pruning can discard a better final route and performance depends on design choices. |
-
-Beam Search is implemented in [beam_search.py](beam_search.py) and 2-opt in [two_opt.py](two_opt.py). The team may refine the approaches after testing. Final implementations must remain meaningfully different, use the same problem definition, and be justified with complexity and experimental evidence. The [Beam Search design notes](docs/beam_search.md) and [2-opt design notes](docs/two_opt.md) explain the implemented structures, pseudocode, complexity, and limitations. The 2-opt notes also contain the current handover.
-
-A distance-only method such as Nearest Neighbor may be used as a baseline. It is not one of the two proposed redesigned solutions unless the team deliberately changes the project plan and documents why.
-
-## Cost model and agreed assumptions
-
-The proposed objective is:
-
-```text
-C = alpha * D_scaled + beta * T_scaled + (1 - alpha - beta) * R_scaled
-```
-
-`D_scaled` represents total route distance, `T_scaled` total elapsed trip time including rests, and `R_scaled` total arrival risk, each on a documented scale. `alpha` and `beta` are non-negative with `alpha + beta <= 1`. A larger `alpha` gives more weight to distance, a larger `beta` to finishing sooner, and the remaining weight goes to safety.
-
-The time term exists because the driver may rest overnight to avoid a night arrival (see the assumptions below). Without it, resting would be free, nearly every arrival would happen by day, and total risk would be almost the same for every route order, reducing the problem to distance-only TSP. With it, each optional rest is a trade-off between trip time and arrival risk. Earlier versions had no waiting at all; the driver then drove non-stop through the night and long legs could skip a whole night with at most one night arrival.
-
-The implementation uses fixed upper-bound normalisation for each selected problem instance. For `n` selected cities (including the depot) and maximum pairwise Haversine distance `d_max`:
-
-```text
-D_scaled = total closed-tour distance / (n * d_max)
-R_scaled = total non-depot arrival risk / (100 * (n - 1))
-T_scaled = elapsed minutes from departure to final depot arrival / (n * (d_max_minutes + 1440))
-```
-
-A closed tour contains `n` legs and `n - 1` scored arrivals, and each of its `n` departures waits less than a day, so all three components lie between 0 and 1. `d_max_minutes` is the driving time of the longest pairwise leg. If all coordinates coincide, the distance divisor is set to 1 km and scaled distance is zero. These divisors stay fixed for every candidate route of an instance; they are not fitted to the current beam. Subsets have their own divisors, so compare algorithms on the same instance and report raw totals too. This scaling is an implementation choice, not a lecturer requirement. 2-opt reuses it through `make_problem()`, so any change must apply to both approaches.
-
-The team has agreed on these modelling assumptions:
-
-| Assumption | Current decision |
-| --- | --- |
-| Route | Start at a chosen depot, visit each selected non-depot location exactly once, and return to the depot. |
-| Safety input | Use the actual Numbeo daytime and nighttime walking-alone safety scores stored in the master dataset. |
-| Risk | `day_risk = 100 - day_safety`; `night_risk = 100 - night_safety`. |
-| Arrival risk | Choose the destination's day or night risk from its arrival time. Do not add a second risk charge for the final return to the depot. |
-| Day | `07:00 <= local time < 19:00`. |
-| Night | `19:00 <= local time` or `local time < 07:00`. |
-| Speed | Constant 60 km/h. |
-| Service time | Zero minutes at each stop. |
-| Rest | The driver never departs at night and never starts a leg that would still be underway at the next 07:00; such departures wait until 07:00, from when any leg may start. By day, before any leg except the return, the driver may also choose to rest overnight until 07:00 to avoid a night arrival. For a given tour the evaluator chooses the optional rests that minimise cost. |
-| Distance | Haversine distance from GeoNames coordinates, used as a simplified geographical model rather than road distance. |
-
-Changing a route changes later arrival times, so the applicable day/night risks and useful rests may also change. Driving into the evening and arriving at night is still allowed and is charged night risk. Only legs longer than 12 hours (720 km) must arrive at night; in this dataset these are cross-sea Haversine legs. If every arrival happens in the same time period, the risk total may be identical for several routes. Numbeo scores are perception scores, not probabilities of crime.
-
-## Running Beam Search
-
-Use Python 3.10 or newer; no third-party packages are required. From the repository root:
-
-```bash
-python3 beam_search.py --depot "Kuala Lumpur" \
-  --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" \
-  --departure 18:00 --alpha 0.4 --beta 0.2 --beam-width 100
-```
-
-The depot is included automatically. Names or stable GeoNameIDs are accepted. Omitting `--cities` uses all 43 master locations, including East Malaysia; select a justified subset for delivery experiments. Defaults are Kuala Lumpur, departure at 08:00 local time, `alpha=0.4`, `beta=0.2` (so risk weight 0.4), and beam width 100. These defaults are not tuned. Use `--beta 0` together with `alpha` up to 1 to ignore trip time.
-
-Use `--output result.json` to save route details and reproducibility metadata, including the dataset SHA-256, selected IDs, depot, departure, scaling divisors, model constants, algorithm version, and search parameters. `D+1` in the arrival table means the day after departure. Initial and final depot risks are shown as `-` and excluded from total risk. Search runtime excludes CSV loading and distance-matrix construction.
-
-```bash
-python3 beam_search.py --help
-python3 -m unittest discover -s tests -v
-```
-
-The arrival table shows each rest and its kind: `night` (mandatory at night), `long leg` (mandatory before a leg that would run through a night) or `chosen` (optional). The implementation branches on leaving now or resting, ranks partial routes by accumulated weighted cost, and includes the return leg before the final pruning step. The final tour is re-evaluated with its cheapest rest schedule. It is a heuristic and does not guarantee an optimal tour. The tests are correctness checks, not a completed comparative experiment study.
-
-## Running Lookahead Beam Search
-
-Lookahead is an optional Beam Search variant. It shares the ordinary search's problem model, state transitions, timing, rest rules, cost calculations, and final evaluator, but ranks each candidate prefix by the estimated cost of greedily completing the full tour. Ordinary Beam Search continues to rank prefixes by accumulated cost.
-
-```bash
-python3 lookahead_beam_search.py --depot "Kuala Lumpur" \
-  --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" \
-  --departure 18:00 --alpha 0.4 --beta 0.2 --beam-width 20
-python3 experiments/lookahead_gap.py --output lookahead_gap.json
-```
-
-The experiment compares ordinary and Lookahead Beam Search with the exact optimum on reproducible nine-city instances. See [docs/beam_search.md](docs/beam_search.md) for its setup, results, complexity, and limitations.
-
-## Running 2-opt
-
-The instance options and their defaults are the same as for Beam Search. From the repository root:
-
-```bash
-python3 two_opt.py --depot "Kuala Lumpur" \
-  --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" \
-  --departure 18:00 --alpha 0.4 --beta 0.2 --strategy best --initial nearest-neighbor
-```
-
-`--strategy` is `best` (cheapest reversal of each full scan, the default) or `first` (first improving reversal). `--initial` is `nearest-neighbor` (the default) or `id-order`. The 9-city gap study kept these two defaults; see [docs/two_opt.md](docs/two_opt.md). `--output result.json` saves the same reproducibility metadata as Beam Search, plus the 2-opt settings, move counts, and starting tour.
-
-The search holds one complete tour and reverses a segment of its stops whenever that lowers the shared cost. Every candidate is scored by `evaluate_tour()` with its own cheapest rest schedule, because a reversal can change arrivals and rests beyond the segment. The search stops at a local optimum, so it does not guarantee an optimal tour.
-
-## Comparing 2-opt and Beam Search
-
-From the repository root:
-
-```bash
-python3 experiments/compare_two_opt.py
-python3 experiments/compare_two_opt.py --quick
-```
-
-The full command takes about half an hour. It writes `experiments/results/comparison.json`. `--quick` is a one-trial check and skips the 37-city and 43-city runs. Read [docs/two_opt.md](docs/two_opt.md) before quoting a number. The tests are still correctness checks. The JSON file is the experiment.
-
-## Implementation files
-
-```text
-beam_search.py                  Loader, instance builder, evaluator, Beam Search, CLI
-lookahead_beam_search.py        Optional Beam Search variant ranked by greedy completion
-two_opt.py                      2-opt search and CLI, using the shared model
-experiments/compare_two_opt.py   Comparison of the two algorithms on shared instances
-experiments/results/comparison.json  Experiment record from that comparison
-experiments/lookahead_gap.py     Ordinary vs Lookahead gap to brute force on 9-city subsets
-tests/test_beam_search.py        Model and Beam Search correctness checks
-tests/test_lookahead_beam_search.py  Lookahead variant checks
-tests/test_two_opt.py            2-opt correctness checks
-tests/test_compare_two_opt.py    Checks for the comparison script
-docs/beam_search.md              Beam Search algorithm and complexity
-docs/two_opt.md                  2-opt algorithm, complexity, experiments, handover
-docs/Project_2627T1.pdf          Official assignment brief
-data/processed/cities_cleaned.csv  Unmodified 43-location master dataset
-```
-
-## Master dataset
-
-The project uses [data/processed/cities_cleaned.csv](data/processed/cities_cleaned.csv) as a reusable master dataset. It contains all Numbeo locations that could be matched reliably to a specific populated-place record in the supplied GeoNames snapshot. It is not preselected for one route, algorithm, region, contributor threshold, or experiment.
-
-Algorithms should select and document suitable subsets at experiment time. A cross-sea route between Peninsular Malaysia and East Malaysia may be mathematically valid in a complete Haversine graph but unrealistic for a road-delivery story, so experiments must explain any geographical constraints they apply.
-
-### 1. Records selected and columns used
-
-The Numbeo inventory has 48 records. The master CSV includes **43** and excludes **5** that cannot be assigned safely to a specific populated-place record.
-
-All included rows use feature class `P`. Their feature codes are `PPL`, `PPLA`, `PPLA2`, `PPLC`, `PPLG`, or `PPLX`. `PPLX` records such as Skudai and Subang Jaya remain in the master data because they are specific populated locations and the master is not enforcing a narrow experiment subset.
-
-Most labels match a GeoNames primary or ASCII name directly. Important alias matches are:
-
-| Numbeo label | GeoNames record used | Reason |
+| Implementation | Submission role | Design |
 | --- | --- | --- |
-| Ampang Jaya | Ampang (`1735168`) | `Ampang Jaya` is an alternate name; the coordinates agree with the PDF's nearby-city distances. |
-| Bandar Penggaram | Batu Pahat (`1732687`) | `Bandar Penggaram` is an alternate name for the populated place. |
-| Kangar, Perlis | Kangar (`1736278`) | The qualifier identifies the Perlis capital unambiguously. |
-| Nilai | Kampung Baharu Nilai (`1771287`) | `Nilai` is an alternate name for this populated-place record. |
-| Skudai (Sekudai) | Skudai (`1732745`) | The parenthetical spelling is an alternate form. |
+| `beam_search.py` | Primary approach 1 | Ordinary Safety-Aware Beam Search keeps a bounded set of partial tours. It uses an integer visited bit mask, parent-linked states, a distance matrix, and a bounded heap. Default beam width: 100. |
+| `two_opt.py` | Primary approach 2 | Safety-Aware 2-opt improves a complete tour by reversing route segments and fully re-evaluating time-dependent risk and rests. The default is best improvement from a distance-only nearest-neighbor tour. |
+| `lookahead_beam_search.py` | Optional X-factor | A more expensive Beam Search variant that ranks each prefix by a greedy completed tour instead of accumulated cost alone. Default beam width: 20. |
 
-For Serdang, the PDF's nearby-city distances do not fit the Selangor record. They support the northern record `1744366` in the supplied GeoNames data. Other repeated names were resolved by preferring the populated-place record and checking state, coordinates, population, feature code, alternate names, and PDF context. Examples include Kota Bharu (`1736376`), Kuala Lumpur (`1735161`), Kuching (`1735634`), Kajang (`10941913`), Labuan (`1733782`), and Putrajaya (`6697380`).
+The two primary approaches differ meaningfully: Beam Search explores many bounded partial routes, while 2-opt performs local search over one complete route. All implementations share the same data loader, problem model, objective, and full-tour evaluator from `beam_search.py`.
 
-### 2. Justification for selection
+## Requirements
 
-Every reliably matched populated location is included, even when it:
+- Python 3.10 or newer
+- Python standard library only; no package installation is required
 
-- is close to another included city;
-- has few Numbeo contributors or an old update date;
-- is in Sabah, Sarawak, or Labuan;
-- uses a GeoNames code such as `PPLX`; or
-- may be unsuitable for a particular future route.
+Package the final submission as `G<X>T<X>.zip` while preserving the paths below. After extraction, open a terminal in the repository root and run all commands from that directory.
 
-This keeps data cleaning separate from experimental design. Teammates can later choose regional, size-based, or quality-focused subsets without rebuilding the source join.
+## Repository layout
 
-The five exclusions are:
+```text
+.
+|-- beam_search.py                     # Ordinary Beam Search and shared model
+|-- two_opt.py                         # Safety-Aware 2-opt
+|-- lookahead_beam_search.py           # Optional lookahead variant
+|-- data/
+|   `-- processed/cities_cleaned.csv   # 43 validated Malaysian locations
+|-- experiments/
+|   |-- compare_two_opt.py             # Primary experiments E1 and E2
+|   |-- lookahead_gap.py               # X-factor experiment
+|   `-- results/comparison.json        # Recorded full primary experiment
+|-- tests/                             # Unit and integration tests
+|-- docs/
+|   |-- beam_search.md                 # Model, algorithm, and complexity details
+|   |-- two_opt.md                     # 2-opt design and experiment discussion
+|   `-- Project_2627T1.pdf             # Official project brief
+`-- README.md
+```
 
-| Numbeo record | Why excluded |
-| --- | --- |
-| Gombak | The exact source match is an `ADM2` district, with no reliable specific populated-place match in this snapshot. |
-| Kedah | It is a state-level label (`ADM1`); its score must not be assigned to Alor Setar or another city. |
-| Langkawi | The label refers to an island or district. GeoNames also lists `Langkawi` as an alternate name for Kuah, but the PDF does not justify treating the island-wide score as a Kuah city score. |
-| Penang | The label can mean the state or island and is also an alternate name for George Town. A separate George Town Numbeo record exists, so there is no unique additional city match. |
-| Selangor | It is a state-level label (`ADM1`); it must not be assigned to Kuala Selangor or another city. |
+## Run the algorithms
 
-### 3. Filtering and preprocessing
+City names or GeoNameIDs are accepted. The depot is added automatically; omitting `--cities` selects all 43 records. `--output` saves detailed reproducibility metadata for the two primary algorithms.
 
-The cleaning process:
+Ordinary Beam Search:
 
-1. Parsed all 71,709 tab-separated GeoNames rows using the 19 fields documented in `Metadata.txt`.
-2. Read all 48 records in `numbeo_inventory.csv`.
-3. Matched Numbeo labels against GeoNames primary names, ASCII names, and alternate names.
-4. Resolved duplicate names using feature class and code, state code, coordinates, population, and the nearby-location context in the original PDF.
-5. Kept one unique populated-place GeoNameID for each accepted Numbeo record.
-6. Copied GeoNameID, name, coordinate text, feature fields, administrative code, and population directly from `MY.txt`.
-7. Verified Crime Index, overall Safety Index, daytime safety, nighttime safety, contributor count, and update date against every PDF in `Crime Indexes.zip`: 48 PDFs and 288 field comparisons, with no mismatches.
-8. Converted update dates to `YYYY-MM-DD`, extracted the canonical Numbeo URL from each PDF, and calculated the two risk complements to two decimal places.
-9. Did not impute, extrapolate, average, or replace missing values. The 48 inventory rows had all required Numbeo values.
+```bash
+python beam_search.py --depot "Kuala Lumpur" --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" --departure 18:00 --alpha 0.4 --beta 0.2 --beam-width 100 --output beam_run.json
+```
 
-The optional XLSX copy was not used as the geographic authority. `MY.txt` remains the lecturer-provided primary source.
+Safety-Aware 2-opt:
 
-### 4. Supplementary and derived attributes
+```bash
+python two_opt.py --depot "Kuala Lumpur" --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" --departure 18:00 --alpha 0.4 --beta 0.2 --strategy best --initial nearest-neighbor --output two_opt_run.json
+```
 
-The cleaned CSV has 16 columns:
+Lookahead Beam Search:
 
-| Column | Meaning |
-| --- | --- |
-| `geonameid` | Unique GeoNames identifier for the matched populated place. |
-| `name` | Original GeoNames primary name. |
-| `latitude`, `longitude` | Original WGS84 coordinates used for Haversine distance. |
-| `feature_class`, `feature_code` | Original GeoNames classification. |
-| `admin1_code` | Original first-level administrative code, stored as text so values such as `01` and `02` keep their leading zeros. |
-| `population` | Original GeoNames population value, retained as context rather than a routing weight. |
-| `crime_index` | Numbeo Crime Index from the PDF, retained as context. |
-| `day_safety`, `night_safety` | Numbeo walking-alone safety scores used by the model. |
-| `day_risk`, `night_risk` | Derived complements `100 - safety`. |
-| `numbeo_contributors` | Contributor count reported in the PDF. |
-| `numbeo_last_update` | PDF update date in ISO format. |
-| `numbeo_url` | Canonical Numbeo city page extracted from the PDF links. |
+```bash
+python lookahead_beam_search.py --depot "Kuala Lumpur" --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" --departure 18:00 --alpha 0.4 --beta 0.2 --beam-width 20
+```
 
-The schema intentionally omits `data_quality_flag`, `numbeo_pdf_pages`, `numbeo_source`, and `numbeo_location`. Quality can be assessed from contributor counts and dates, while the repository documentation records the cleaning method and alias decisions.
+Use `python <script> --help` for every supported option.
 
-## Data limitations
+## Reproduce the primary experiments
 
-- Numbeo data reflects self-selected perceptions gathered over the preceding five years. It is not a crime probability or a measurement specific to delivery drivers.
-- Contributor counts vary substantially, and update dates range from 2021 to 2026. Low counts and older dates were retained because they describe data quality rather than matching validity.
-- City-level scores hide neighbourhood and time-of-day variation beyond the two supplied safety measures.
-- GeoNames population and classification values belong to the supplied snapshot and may not match current official statistics or municipal boundaries.
-- Haversine edges do not follow roads, bridges, ferries, or borders. They can cross water and should not be described as realistic driving routes.
-- Several urban records overlap geographically. Experiments should account for this when choosing subsets and interpreting results.
+`experiments/compare_two_opt.py` compares Safety-Aware 2-opt with **ordinary** Beam Search using identical problem instances and the default 40/20/40 objective.
 
-## Potential experiments
+Experiments 1 and 2 share this runner because they use the same algorithms and evaluation framework. A single run executes both experiments and reports their results in separately labelled sections.
 
-The following are options for the team to refine rather than fixed requirements:
+- **E1 - solution quality:** 200 seeded random 9-city Peninsular instances, with departures sampled from 06:00, 10:00, 14:00, and 18:00. Every instance is solved exactly by brute force over all `8!` stop orders. The main metric is mean optimality gap, `(heuristic cost - optimum) / optimum`.
+- **E2 - larger datasets:** 15-city Klang Valley (Kuala Lumpur depot), 37-city Peninsular Malaysia (Kuala Lumpur depot), the same 37 cities (Johor Bahru depot), 6-city East Malaysia (Kuching depot), and all 43 cities (Kuala Lumpur depot). Each runs at 08:00 and 18:00. The reported cost advantage is `(Beam W=100 cost - 2-opt cost) / Beam W=100 cost`; positive values favor 2-opt.
+- **Additional analyses:** 40 morning-departure trials and 20 objective-weight trials by default, plus runtime and memory measurements. The relevant defaults are therefore 200/40/20.
 
-- compare both proposed algorithms and a common baseline on the same selected instances;
-- vary subset size, region, depot, departure time, `alpha`, `beta`, beam width, and 2-opt design choices;
-- test Peninsular-only, East Malaysia, metropolitan, nationwide, or contributor-based subsets;
-- use tiny instances where exhaustive enumeration can provide a reference optimum;
-- evaluate sensitivity to normalisation choices, provided each comparison uses the same sound scaling method;
-- study solution cost, raw and scaled distance, raw and scaled risk, runtime, memory, route validity, stability, and gap to a reference solution when available.
+Quick validation run:
 
-Experiments should record enough information to reproduce each instance and should report losing cases and limitations as well as improvements. Do not claim optimality, correctness, or performance without evidence. The comparison that has been run is written up in [docs/two_opt.md](docs/two_opt.md). It does not vary the scaling formula.
+```bash
+python experiments/compare_two_opt.py --quick --output experiments/results/quick_check.json
+```
 
-## Deliverables, rubric, and AI use
+`--quick` reduces the small studies to one trial and skips the 37-city and 43-city runs. It checks the pipeline; it does not reproduce the full reported evidence.
 
-The brief requires a Week 12 Sunday 23:00 submission through eLearn and Week 13 peer evaluation. The submission ZIP must contain the source code, data used, meaningfully organised experiment files, and a README with the actual folder structure and run instructions. Presentation slides are also required.
+Full reproduction:
 
-The project contributes 20% of the course grade. The rubric allocates 10% to problem interestingness, 30% to experimentation, 40% to presentation, 10% to critique of another team's design or algorithm, and 10% to an X-factor. A fancy interface alone is not an X-factor.
+```bash
+python experiments/compare_two_opt.py --output experiments/results/full_reproduction.json
+```
 
-AI assistance is allowed for activities listed in the brief, but the team remains responsible for every decision and deliverable. The final report must acknowledge tools, explain where they were used, identify the team's original work, and include three real representative prompts. GenAI cannot answer questions during the live presentation or demonstration.
+Allow roughly **30-45 minutes**, depending on hardware. The terminal shows a readable summary; the JSON file keeps the detailed inputs, routes, metrics, timings, and metadata. The submitted baseline record is `experiments/results/comparison.json`.
+
+## Reproduce the X-factor experiment
+
+The optional study compares ordinary and Lookahead Beam Search against brute force on 200 seeded 9-city Peninsular instances. Its default beam widths are 1, 20, and 100, with departures sampled from 06:00, 10:00, 14:00, and 18:00.
+
+```bash
+python experiments/lookahead_gap.py --output experiments/results/lookahead_gap.json
+```
+
+This is a small-instance optimality-gap study, not a third primary submission approach and not a comparison with 2-opt.
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+## Assumptions and limitations
+
+- Distances are straight-line Haversine distances, not road-network distances; speed is fixed at 60 km/h and service time is zero.
+- Day is 07:00 to before 19:00. Numbeo safety scores are perception-based indicators, not probabilities of harm.
+- Mandatory and optional rests end at 07:00; the shared evaluator chooses the cheapest valid rest schedule for each complete tour.
+- Cross-sea Haversine legs in the all-43-city study are an abstract stress test, not realistic driving routes. Regional subsets are more operationally meaningful.
+- Normalization depends on the selected instance, so combined costs should only be compared between algorithms solving the same instance.
