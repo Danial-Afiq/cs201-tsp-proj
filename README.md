@@ -2,7 +2,7 @@
 
 CS201 Data Structures & Algorithms project for *Beyond the Classic TSP*.
 
-> **Current status (2026-11-01):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, Safety-Aware 2-opt, CSV validation, a shared tour evaluator with overnight-rest scheduling, and a command-line runner for each algorithm are implemented. All 49 automated tests pass, including exhaustive-reference checks on small instances. Comparative experiments remain unimplemented.
+> **Current status (2026-11-06):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, Safety-Aware 2-opt, CSV validation, a shared tour evaluator with overnight-rest scheduling, and a command-line runner for each algorithm are implemented. All 57 automated tests pass (26 Beam Search, 23 2-opt, 8 comparison-script checks). A comparison of 2-opt and Beam Search has been run; the numbers and the run command are in [docs/two_opt.md](docs/two_opt.md).
 
 The official [project brief](docs/Project_2627T1.pdf) is the authority for assignment requirements. This README explains our current project direction and data decisions. It does not add requirements to the brief.
 
@@ -106,19 +106,33 @@ python3 two_opt.py --depot "Kuala Lumpur" \
   --departure 18:00 --alpha 0.4 --beta 0.2 --strategy best --initial nearest-neighbor
 ```
 
-`--strategy` is `best` (cheapest reversal of each full scan, the default) or `first` (first improving reversal). `--initial` is `nearest-neighbor` (the default) or `id-order`. These defaults are not tuned. `--output result.json` saves the same reproducibility metadata as Beam Search, plus the 2-opt settings, move counts, and starting tour.
+`--strategy` is `best` (cheapest reversal of each full scan, the default) or `first` (first improving reversal). `--initial` is `nearest-neighbor` (the default) or `id-order`. The 9-city gap study kept these two defaults; see [docs/two_opt.md](docs/two_opt.md). `--output result.json` saves the same reproducibility metadata as Beam Search, plus the 2-opt settings, move counts, and starting tour.
 
 The search holds one complete tour and reverses a segment of its stops whenever that lowers the shared cost. Every candidate is scored by `evaluate_tour()` with its own cheapest rest schedule, because a reversal can change arrivals and rests beyond the segment. The search stops at a local optimum, so it does not guarantee an optimal tour.
+
+## Comparing 2-opt and Beam Search
+
+From the repository root:
+
+```bash
+python3 experiments/compare_two_opt.py
+python3 experiments/compare_two_opt.py --quick
+```
+
+The full command takes about half an hour. It writes `experiments/results/comparison.json`. `--quick` is a one-trial check and skips the 37-city and 43-city runs. Read [docs/two_opt.md](docs/two_opt.md) before quoting a number. The tests are still correctness checks. The JSON file is the experiment.
 
 ## Implementation files
 
 ```text
 beam_search.py                  Loader, instance builder, evaluator, Beam Search, CLI
 two_opt.py                      2-opt search and CLI, using the shared model
+experiments/compare_two_opt.py   Comparison of the two algorithms on shared instances
+experiments/results/comparison.json  Experiment record from that comparison
 tests/test_beam_search.py        Model and Beam Search correctness checks
 tests/test_two_opt.py            2-opt correctness checks
+tests/test_compare_two_opt.py    Checks for the comparison script
 docs/beam_search.md              Beam Search algorithm and complexity
-docs/two_opt.md                  2-opt algorithm, complexity, and handover
+docs/two_opt.md                  2-opt algorithm, complexity, experiments, handover
 docs/Project_2627T1.pdf          Official assignment brief
 data/processed/cities_cleaned.csv  Unmodified 43-location master dataset
 ```
@@ -226,7 +240,7 @@ The following are options for the team to refine rather than fixed requirements:
 - evaluate sensitivity to normalisation choices, provided each comparison uses the same sound scaling method;
 - study solution cost, raw and scaled distance, raw and scaled risk, runtime, memory, route validity, stability, and gap to a reference solution when available.
 
-Experiments should record enough information to reproduce each instance and should report losing cases and limitations as well as improvements. Do not claim optimality, correctness, or performance without evidence.
+Experiments should record enough information to reproduce each instance and should report losing cases and limitations as well as improvements. Do not claim optimality, correctness, or performance without evidence. The comparison that has been run is written up in [docs/two_opt.md](docs/two_opt.md). It does not vary the scaling formula.
 
 ## Deliverables, rubric, and AI use
 

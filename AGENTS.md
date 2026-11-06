@@ -19,7 +19,7 @@ The two proposed redesigned approaches are:
 
 They are intended to differ meaningfully in algorithm and data structure design. Their detailed implementations remain open to experimentation and justification.
 
-**Current status (2026-11-01):** `data/processed/cities_cleaned.csv` is a validated 43-row master dataset. `beam_search.py` implements CSV validation, problem construction, a shared full-tour evaluator with optimal overnight-rest scheduling, Safety-Aware Beam Search, and a CLI with JSON export. `two_opt.py` implements Safety-Aware 2-opt and a CLI on that shared model. All 49 tests in `tests/` pass (26 in `test_beam_search.py`, 23 in `test_two_opt.py`), including small-instance exhaustive-reference checks. Comparative experiments and benchmark results remain unimplemented; `docs/two_opt.md` lists the next steps. Do not describe correctness checks as completed experiments.
+**Current status (2026-11-06):** `data/processed/cities_cleaned.csv` is a validated 43-row master dataset. `beam_search.py` implements CSV validation, problem construction, a shared full-tour evaluator with optimal overnight-rest scheduling, Safety-Aware Beam Search, and a CLI with JSON export. `two_opt.py` implements Safety-Aware 2-opt and a CLI on that shared model. All 57 tests in `tests/` pass (26 in `test_beam_search.py`, 23 in `test_two_opt.py`, 8 in `test_compare_two_opt.py`). `experiments/compare_two_opt.py` has been run; the record is `experiments/results/comparison.json` and the write-up is `docs/two_opt.md`. Do not describe the unit tests as the experiment.
 
 ## Agreed problem model
 
@@ -84,7 +84,7 @@ The current algorithm names and high-level ideas are team decisions. Internal st
 
 For 2-opt, a valid initial tour, segment-reversal policy, improvement strategy, tie handling, and stopping rule may be chosen based on evidence. Re-evaluate the full affected route logic because arrival times, rests, and risks can change after a move.
 
-The current 2-opt implementation keeps one complete tour and scores every candidate reversal with `evaluate_tour()`, so each candidate gets its own cheapest rest schedule and a scan costs `O(n^4)` in the worst case. It includes the all-stops reversal, which keeps distance but changes arrival times. It starts from distance-only nearest neighbor by default (`id-order` is the alternative), supports `best` and `first` improvement, resolves ties to the earliest `(first, last)` move, and stops when no reversal improves cost by more than `1e-12`. These defaults are not tuned. See `docs/two_opt.md`.
+The current 2-opt implementation keeps one complete tour and scores every candidate reversal with `evaluate_tour()`, so each candidate gets its own cheapest rest schedule and a scan costs `O(n^4)` in the worst case. It includes the all-stops reversal, which keeps distance but changes arrival times. It starts from distance-only nearest neighbor by default (`id-order` is the alternative), supports `best` and `first` improvement, resolves ties to the earliest `(first, last)` move, and stops when no reversal improves cost by more than `1e-12`. The 9-city comparison kept `best` and `nearest-neighbor`. See `docs/two_opt.md`.
 
 For Beam Search, state fields, ranking, pruning, deduplication, reconstruction, and beam-width handling may be refined. Partial states that reach the same city after visiting the same set are not automatically equivalent if their clocks differ.
 
