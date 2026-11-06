@@ -2,7 +2,7 @@
 
 CS201 Data Structures & Algorithms project for *Beyond the Classic TSP*.
 
-> **Current status (2026-11-06):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, Safety-Aware 2-opt, CSV validation, a shared tour evaluator with overnight-rest scheduling, and a command-line runner for each algorithm are implemented. All 57 automated tests pass (26 Beam Search, 23 2-opt, 8 comparison-script checks). A comparison of 2-opt and Beam Search has been run; the numbers and the run command are in [docs/two_opt.md](docs/two_opt.md).
+> **Current status (2026-11-06):** The cleaned master dataset contains 43 reliably matched Malaysian locations with PDF-verified Numbeo values. Safety-Aware Beam Search, Safety-Aware 2-opt, an optional Lookahead Beam Search variant, CSV validation, a shared tour evaluator with overnight-rest scheduling, and a command-line runner for each algorithm are implemented. All 66 automated tests pass (26 Beam Search, 23 2-opt, 8 comparison-script checks, and 9 Lookahead checks). A comparison of 2-opt and ordinary Beam Search has been run; the numbers and run command are in [docs/two_opt.md](docs/two_opt.md). The separate small-instance Lookahead experiment is documented in [docs/beam_search.md](docs/beam_search.md).
 
 The official [project brief](docs/Project_2627T1.pdf) is the authority for assignment requirements. This README explains our current project direction and data decisions. It does not add requirements to the brief.
 
@@ -96,6 +96,19 @@ python3 -m unittest discover -s tests -v
 
 The arrival table shows each rest and its kind: `night` (mandatory at night), `long leg` (mandatory before a leg that would run through a night) or `chosen` (optional). The implementation branches on leaving now or resting, ranks partial routes by accumulated weighted cost, and includes the return leg before the final pruning step. The final tour is re-evaluated with its cheapest rest schedule. It is a heuristic and does not guarantee an optimal tour. The tests are correctness checks, not a completed comparative experiment study.
 
+## Running Lookahead Beam Search
+
+Lookahead is an optional Beam Search variant. It shares the ordinary search's problem model, state transitions, timing, rest rules, cost calculations, and final evaluator, but ranks each candidate prefix by the estimated cost of greedily completing the full tour. Ordinary Beam Search continues to rank prefixes by accumulated cost.
+
+```bash
+python3 lookahead_beam_search.py --depot "Kuala Lumpur" \
+  --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" \
+  --departure 18:00 --alpha 0.4 --beta 0.2 --beam-width 20
+python3 experiments/lookahead_gap.py --output lookahead_gap.json
+```
+
+The experiment compares ordinary and Lookahead Beam Search with the exact optimum on reproducible nine-city instances. See [docs/beam_search.md](docs/beam_search.md) for its setup, results, complexity, and limitations.
+
 ## Running 2-opt
 
 The instance options and their defaults are the same as for Beam Search. From the repository root:
@@ -125,10 +138,13 @@ The full command takes about half an hour. It writes `experiments/results/compar
 
 ```text
 beam_search.py                  Loader, instance builder, evaluator, Beam Search, CLI
+lookahead_beam_search.py        Optional Beam Search variant ranked by greedy completion
 two_opt.py                      2-opt search and CLI, using the shared model
 experiments/compare_two_opt.py   Comparison of the two algorithms on shared instances
 experiments/results/comparison.json  Experiment record from that comparison
+experiments/lookahead_gap.py     Ordinary vs Lookahead gap to brute force on 9-city subsets
 tests/test_beam_search.py        Model and Beam Search correctness checks
+tests/test_lookahead_beam_search.py  Lookahead variant checks
 tests/test_two_opt.py            2-opt correctness checks
 tests/test_compare_two_opt.py    Checks for the comparison script
 docs/beam_search.md              Beam Search algorithm and complexity
