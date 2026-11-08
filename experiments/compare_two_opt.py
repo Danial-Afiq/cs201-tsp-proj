@@ -83,6 +83,16 @@ STARTS = ("nearest-neighbor", "id-order")
 BEAM_WIDTHS = (1, 20, 100)
 CURRENT_DEFAULT = "best, nearest-neighbor"
 
+# Terminal presentation only. Keep lines readable in an ordinary PowerShell
+# window and spell out the implementation choices used in the JSON keys.
+DISPLAY_LINE_WIDTH = 88
+TWO_OPT_DISPLAY_NAMES = {
+    "best, nearest-neighbor": "2-opt (best improvement, NN start)",
+    "best, id-order": "2-opt (best improvement, ID-order start)",
+    "first, nearest-neighbor": "2-opt (first improvement, NN start)",
+    "first, id-order": "2-opt (first improvement, ID-order start)",
+}
+
 # Switch the built-in default only if another setting's average gap is better
 # by more than half a percentage point. A smaller difference stays on the
 # current default so one noisy study does not churn the command line.
@@ -509,13 +519,16 @@ def public_instance(row):
 
 def run_gap_study(pool, trial_count, seed, departure_names, label):
     """Small random instances, each with an exhaustive optimum."""
-    print(f"\n{label}: {trial_count} trials, seed {seed}, departures {', '.join(departure_names)}", flush=True)
+    trial_word = "trial" if trial_count == 1 else "trials"
+    print(f"  {label}: {trial_count} {trial_word}, seed {seed}", flush=True)
     specs = draw_instances(pool, trial_count, seed, departure_names, city_count=9)
     rows = []
     started = time.perf_counter()
+    progress_interval = max(1, trial_count // 10)
     for spec in specs:
-        if spec["trial"] % 10 == 0:
-            print(f"  trial {spec['trial'] + 1}/{trial_count}", flush=True)
+        completed = spec["trial"] + 1
+        if completed == 1 or completed % progress_interval == 0 or completed == trial_count:
+            print(f"    Progress: {completed}/{trial_count} trials", flush=True)
         row = solve_instance(
             spec["cities"], spec["depot_id"], spec["departure_minutes"], 0.4, 0.2, with_optimum=True,
         )
@@ -531,21 +544,24 @@ def run_gap_study(pool, trial_count, seed, departure_names, label):
     summary["beta"] = 0.2
     summary["city_count"] = 9
     summary["wall_seconds"] = elapsed
-    print(f"  finished in {elapsed / 60:.1f} min", flush=True)
-    print_gap_table(summary)
+    print(f"  Completed in {elapsed / 60:.1f} min", flush=True)
     return {"summary": summary, "trials": [public_instance(row) for row in rows]}
 
 
 def run_weight_study(pool, trial_count, seed):
     """Same sampled cities under five weight pairs. Each pair has its own optimum."""
-    print(f"\nWeight study: {trial_count} city samples, seed {seed}, five weights", flush=True)
+    sample_word = "sample" if trial_count == 1 else "samples"
+    print(f"  Weight sensitivity: {trial_count} city {sample_word}, seed {seed}, five weights", flush=True)
     specs = draw_instances(
         pool, trial_count, seed, ALL_DEPARTURES, city_count=9, balance_departures=True,
     )
     grouped = []
     started = time.perf_counter()
+    progress_interval = max(1, trial_count // 5)
     for spec in specs:
-        print(f"  sample {spec['trial'] + 1}/{trial_count}, departure {spec['departure']}", flush=True)
+        completed = spec["trial"] + 1
+        if completed == 1 or completed % progress_interval == 0 or completed == trial_count:
+            print(f"    Progress: {completed}/{trial_count} samples", flush=True)
         by_weight = {"trial": spec["trial"], "departure": spec["departure"], "weights": {}}
         for alpha, beta, weight_name in SENSITIVITY_WEIGHTS:
             row = solve_instance(
@@ -565,7 +581,7 @@ def run_weight_study(pool, trial_count, seed):
             weight_rows.append(_summary_row_from_public(saved))
         by_weight_summary[weight_name] = summarise_gap_rows(weight_rows)
     elapsed = time.perf_counter() - started
-    print(f"  finished in {elapsed / 60:.1f} min", flush=True)
+    print(f"  Completed in {elapsed / 60:.1f} min; detailed results are in the JSON output.", flush=True)
     return {
         "seed": seed,
         "trials": trial_count,
@@ -593,7 +609,6 @@ def _summary_row_from_public(saved):
 
 def run_named_instance(name, cities, depot_name, departure_name, alpha, beta, with_optimum):
     depot = find_city(cities, depot_name)
-    print(f"  {name} | depot {depot_name} | {departure_name} | alpha {alpha} beta {beta}", flush=True)
     row = solve_instance(cities, depot.geonameid, parse_departure(departure_name), alpha, beta, with_optimum)
     row["label"] = name
     row["departure"] = departure_name
@@ -603,10 +618,14 @@ def run_named_instance(name, cities, depot_name, departure_name, alpha, beta, wi
 
 def run_large_study(groups):
     """Bigger fixed subsets. Exhaustive search only for the 6-city East group."""
-    print("\nLarge-instance study", flush=True)
     rows = []
     started = time.perf_counter()
-    for group_name, cities, depot_name, departures, weights, with_optimum in groups:
+    configuration_count = sum(len(departures) * len(weights)
+                              for _name, _cities, _depot, departures, weights, _optimum in groups)
+    print(f"  Running {configuration_count} configurations across {len(groups)} datasets", flush=True)
+    for group_number, (group_name, cities, depot_name, departures, weights, with_optimum) in enumerate(groups, 1):
+        print(f"    Dataset {group_number}/{len(groups)}: {group_name} "
+              f"({len(cities)} cities, {depot_name} depot)", flush=True)
         for departure_name in departures:
             for alpha, beta, weight_name in weights:
                 row = run_named_instance(
@@ -615,7 +634,7 @@ def run_large_study(groups):
                 row["weight"] = weight_name
                 rows.append(row)
     elapsed = time.perf_counter() - started
-    print(f"  finished in {elapsed / 60:.1f} min", flush=True)
+    print(f"  Completed in {elapsed / 60:.1f} min", flush=True)
     return {"wall_seconds": elapsed, "instances": [_large_public_row(row) for row in rows]}
 
 
@@ -649,15 +668,15 @@ def run_timing_and_memory(cases, repeats):
     Memory is the tracemalloc peak of the search call only. It is not the
     O(n^4) complexity bound, and it includes the Python objects that call allocates.
     """
-    print("\nTiming and memory", flush=True)
     timing_rows = []
     memory_rows = []
-    for case in cases:
+    for case_number, case in enumerate(cases, 1):
         cities = case["cities"]
         depot = find_city(cities, case["depot_name"])
+        print(f"    Benchmark {case_number}/{len(cases)}: {case['name']} "
+              f"({len(cities)} cities)", flush=True)
         for departure_name in case["departures"]:
             problem = make_problem(cities, depot.geonameid, parse_departure(departure_name), 0.4, 0.2)
-            print(f"  {case['name']} | {departure_name} | {len(problem.cities)} cities", flush=True)
             for strategy in STRATEGIES:
                 for start in STARTS:
                     samples = []
@@ -707,19 +726,153 @@ def run_timing_and_memory(cases, repeats):
     return {"repeats": repeats, "timing": timing_rows, "memory": memory_rows}
 
 
-def print_gap_table(summary):
-    print(f"  {'method':<28} {'mean gap':>10} {'median':>10} {'max':>10} {'optimal':>10} {'mean s':>8}")
+def print_section(title):
+    """Print an ASCII-only section heading suitable for standard terminals."""
+    print(f"\n{title}")
+    print("-" * min(DISPLAY_LINE_WIDTH, len(title)))
+
+
+def print_run_header(output_path, quick):
+    print("=" * DISPLAY_LINE_WIDTH)
+    print("SafeRoute: 2-opt vs Ordinary Beam Search")
+    print("Distance 40% | Journey time 20% | Arrival risk 40%")
+    print("Mode: QUICK CHECK" if quick else "Mode: FULL REPRODUCIBLE EXPERIMENT")
+    print(f"JSON output: {output_path}")
+    print("=" * DISPLAY_LINE_WIDTH)
+
+
+def print_experiment_one_results(summary):
+    """Professor-facing solution-quality table from the existing summary."""
+    print()
+    print(f"  {'Algorithm / configuration':<42} {'Mean gap':>8} {'Median':>8} "
+          f"{'Max gap':>8} {'Exact opt.':>10}")
+    print("  " + "-" * 80)
+    ranked = []
     for name, item in summary["two_opt"].items():
-        hits = f"{item['optimal_hits']}/{summary['trials']}"
-        print(f"  {name:<28} {item['mean_gap']:>10.2%} {item['median_gap']:>10.2%} "
-              f"{item['max_gap']:>10.2%} {hits:>10} {item['mean_runtime_seconds']:>8.3f}")
+        label = TWO_OPT_DISPLAY_NAMES.get(name, f"2-opt ({name})")
+        ranked.append((label, item))
     for width, item in summary["beam"].items():
+        ranked.append((f"Ordinary Beam Search (W={width})", item))
+    for label, item in ranked:
         hits = f"{item['optimal_hits']}/{summary['trials']}"
-        label = f"beam {width}"
-        print(f"  {label:<28} {item['mean_gap']:>10.2%} {item['median_gap']:>10.2%} "
-              f"{item['max_gap']:>10.2%} {hits:>10} {item['mean_runtime_seconds']:>8.3f}")
+        print(f"  {label:<42} {item['mean_gap']:>8.2%} {item['median_gap']:>8.2%} "
+              f"{item['max_gap']:>8.2%} {hits:>10}")
+    print("  " + "-" * 80)
     baseline = summary["nearest_neighbor_baseline"]["mean_gap"]
-    print(f"  nearest-neighbor baseline mean gap {baseline:.2%}")
+    print(f"  Reference baseline: Nearest Neighbour mean gap = {baseline:.2%}")
+    print("  NN = Nearest Neighbour starting tour; W = retained Beam Search width.")
+
+    best_label, best = min(ranked, key=lambda entry: entry[1]["mean_gap"])
+    best_beam_label, best_beam = min(
+        ((f"W={width}", item) for width, item in summary["beam"].items()),
+        key=lambda entry: entry[1]["mean_gap"],
+    )
+    print(f"  Takeaway: {best_label}")
+    print(f"            Lowest mean gap: {best['mean_gap']:.2%}; exact optima: "
+          f"{best['optimal_hits']}/{summary['trials']}.")
+    if not best_label.startswith("Ordinary Beam Search"):
+        print(f"            The best ordinary Beam Search setting was {best_beam_label} "
+              f"with a {best_beam['mean_gap']:.2%} mean gap.")
+
+
+def _large_dataset_name(row):
+    labels = {
+        ("Klang Valley", "Kuala Lumpur"): "Klang Valley (KL depot)",
+        ("Peninsular", "Kuala Lumpur"): "Peninsular Malaysia (KL depot)",
+        ("Peninsular", "Johor Bahru"): "Peninsular Malaysia (JB depot)",
+        ("East Malaysia", "Kuching"): "East Malaysia (Kuching depot)",
+        ("All 43 cities", "Kuala Lumpur"): "All Malaysia (KL depot)",
+    }
+    return labels.get((row["label"], row["depot_name"]),
+                      f"{row['label']} ({row['depot_name']} depot)")
+
+
+def _large_dataset_sort_key(row):
+    order = {
+        ("Klang Valley", "Kuala Lumpur"): 0,
+        ("Peninsular", "Kuala Lumpur"): 1,
+        ("Peninsular", "Johor Bahru"): 2,
+        ("East Malaysia", "Kuching"): 3,
+        ("All 43 cities", "Kuala Lumpur"): 4,
+    }
+    return order.get((row["label"], row["depot_name"]), len(order))
+
+
+def large_dataset_comparisons(instances):
+    """Default-weight 2-opt advantage over Beam W=100, grouped for display."""
+    grouped = {}
+    for row in instances:
+        if row["alpha"] != 0.4 or row["beta"] != 0.2:
+            continue
+        two_opt_cost = row["two_opt"][CURRENT_DEFAULT]["cost"]
+        beam_cost = row["beam"]["100"]["cost"]
+        winner = outcome(two_opt_cost, beam_cost)
+        if winner == "tie":
+            advantage = 0.0
+        elif beam_cost == 0:
+            advantage = None
+        else:
+            advantage = (beam_cost - two_opt_cost) / beam_cost * 100
+        key = (row["label"], row["depot_name"])
+        entry = grouped.setdefault(key, {
+            "name": _large_dataset_name(row),
+            "cities": row["city_count"],
+            "sort_key": _large_dataset_sort_key(row),
+            "departures": {},
+        })
+        entry["departures"][row["departure"]] = {
+            "advantage_percent": advantage,
+            "winner": winner,
+        }
+    return sorted(grouped.values(), key=lambda entry: entry["sort_key"])
+
+
+def _format_advantage(result):
+    if result is None:
+        return "not run"
+    if result["winner"] == "tie":
+        return "Tie"
+    value = result["advantage_percent"]
+    if value is None:
+        return "N/A"
+    if result["winner"] == "two_opt_cheaper":
+        return f"2-opt +{value:.2f}%"
+    return f"Beam +{-value:.2f}%"
+
+
+def print_experiment_two_results(instances):
+    """Compact larger-dataset table computed directly from result rows."""
+    rows = large_dataset_comparisons(instances)
+    print("  Metric: (Beam W=100 cost - 2-opt cost) / Beam W=100 cost x 100%")
+    print("  Positive values favour 2-opt; Beam wins and ties are labelled explicitly.")
+    print()
+    print(f"  {'Dataset':<39} {'Cities':>6} {'08:00':>16} {'18:00':>16}")
+    print("  " + "-" * 80)
+    comparisons = []
+    for row in rows:
+        morning = row["departures"].get("08:00")
+        evening = row["departures"].get("18:00")
+        print(f"  {row['name']:<39} {row['cities']:>6} "
+              f"{_format_advantage(morning):>16} {_format_advantage(evening):>16}")
+        comparisons.extend(result for result in (morning, evening) if result is not None)
+    print("  " + "-" * 80)
+    if len(rows) < 5:
+        print("  Quick mode shows only the datasets executed in the quick check.")
+
+    two_opt_wins = sum(result["winner"] == "two_opt_cheaper" for result in comparisons)
+    beam_wins = sum(result["winner"] == "beam_cheaper" for result in comparisons)
+    ties = sum(result["winner"] == "tie" for result in comparisons)
+    print(f"  Takeaway: 2-opt had lower cost in {two_opt_wins}/{len(comparisons)} comparisons; "
+          f"Beam W=100 won {beam_wins}; ties: {ties}.")
+    return {"comparisons": len(comparisons), "two_opt_wins": two_opt_wins,
+            "beam_wins": beam_wins, "ties": ties}
+
+
+def print_additional_gap_result(summary):
+    best_name, best = min(summary["two_opt"].items(), key=lambda entry: entry[1]["mean_gap"])
+    beam = summary["beam"]["100"]
+    print(f"  Best 2-opt: {TWO_OPT_DISPLAY_NAMES.get(best_name, best_name)}")
+    print(f"    Mean gap {best['mean_gap']:.2%}; Beam W=100 mean gap {beam['mean_gap']:.2%}.")
 
 
 def dataset_sha256():
@@ -729,7 +882,6 @@ def dataset_sha256():
 def save_payload(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
-    print(f"Saved {path}", flush=True)
 
 
 def build_parser():
@@ -757,6 +909,8 @@ def main(argv=None):
         args.morning_trials = 1
         args.weight_trials = 1
         args.repeats = 1
+
+    print_run_header(args.output, args.quick)
 
     cities = list(load_cities())
     check_city_groups(cities)
@@ -789,7 +943,8 @@ def main(argv=None):
     }
 
     # Fail in seconds if a search can beat the exhaustive optimum.
-    print("Sanity check: README example and East Malaysia", flush=True)
+    print_section("ADDITIONAL ANALYSES: SANITY CHECKS")
+    print("  Verifying the README example and East Malaysia against the exact optimum...", flush=True)
     example_cities = [find_city(cities, name) for name in
                       ("Kuala Lumpur", "Ipoh", "Johor Bahru", "Kuantan", "Malacca")]
     example = run_named_instance(
@@ -800,18 +955,30 @@ def main(argv=None):
     )
     payload["sanity_checks"] = [_large_public_row(example), _large_public_row(east_check)]
     save_payload(args.output, payload)
+    print("  Passed: neither heuristic beat the exhaustive optimum.", flush=True)
 
+    print_section("EXPERIMENT 1: SOLUTION QUALITY")
+    print("  Purpose: compare 2-opt and ordinary Beam Search with the exact optimum.")
+    trial_word = "trial" if args.gap_trials == 1 else "trials"
+    print(f"  Setup: {args.gap_trials} {trial_word} x 9 cities; departure pool "
+          f"{', '.join(GAP_DEPARTURES)}")
+    print("  Weights: distance 40%, journey time 20%, arrival risk 40%")
+    print("  Metric: optimality gap (lower is better)")
     payload["gap_study"] = run_gap_study(
         pool, args.gap_trials, args.seed, GAP_DEPARTURES,
-        "Main gap study",
+        "Exact-optimum comparison",
     )
     save_payload(args.output, payload)
+    print_experiment_one_results(payload["gap_study"]["summary"])
 
+    print_section("ADDITIONAL ANALYSES: DEPARTURE TIME AND WEIGHT SENSITIVITY")
+    print("  08:00-only solution-quality check")
     payload["morning_study"] = run_gap_study(
         pool, args.morning_trials, args.seed + 1, ("08:00",),
-        "08:00 departure study",
+        "Morning comparison",
     )
     save_payload(args.output, payload)
+    print_additional_gap_result(payload["morning_study"]["summary"])
 
     payload["weight_study"] = run_weight_study(pool, args.weight_trials, args.seed + 2)
     save_payload(args.output, payload)
@@ -837,8 +1004,12 @@ def main(argv=None):
             {"name": "Peninsular", "cities": peninsular, "depot_name": "Kuala Lumpur", "departures": LARGE_DEPARTURES},
             {"name": "All 43 cities", "cities": cities, "depot_name": "Kuala Lumpur", "departures": LARGE_DEPARTURES},
         ])
+    print_section("EXPERIMENT 2: LARGER DATASETS")
+    print("  Purpose: compare default 2-opt with ordinary Beam Search W=100.")
+    print("  Departures: 08:00 and 18:00 | Weights: distance 40%, time 20%, risk 40%")
     payload["large_study"] = run_large_study(large_groups)
     save_payload(args.output, payload)
+    large_summary = print_experiment_two_results(payload["large_study"]["instances"])
 
     # A fixed 9-city sample so the timing table has a small row as well as the big ones.
     sample = draw_instances(pool, 1, args.seed, ("08:00",), 9)[0]
@@ -848,14 +1019,24 @@ def main(argv=None):
         "depot_name": sample["depot_name"],
         "departures": LARGE_DEPARTURES,
     })
+    print_section("ADDITIONAL ANALYSES: RUNTIME AND MEMORY")
+    repeat_word = "run" if args.repeats == 1 else "runs"
+    print(f"  Median of {args.repeats} {repeat_word}; timings and allocations are machine-dependent.")
     payload["timing_and_memory"] = run_timing_and_memory(timing_cases, args.repeats)
     payload["default_recommendation"] = choose_default(payload["gap_study"]["summary"]["two_opt"])
     payload["default_recommendation"]["morning_check"] = choose_default(
         payload["morning_study"]["summary"]["two_opt"],
     )
     save_payload(args.output, payload)
-    print("\nDefault recommendation:", payload["default_recommendation"]["reason"], flush=True)
-    print("08:00 check:", payload["default_recommendation"]["morning_check"]["reason"], flush=True)
+
+    print_section("RUN COMPLETE")
+    setting = payload["default_recommendation"]["setting"]
+    print(f"  Recommended default: {TWO_OPT_DISPLAY_NAMES.get(setting, setting)}.")
+    print(f"  Experiment 2: 2-opt wins {large_summary['two_opt_wins']}/"
+          f"{large_summary['comparisons']}; Beam wins {large_summary['beam_wins']}; "
+          f"ties {large_summary['ties']}.")
+    print("  Additional sanity, departure-time, weight, runtime, and memory analyses completed.")
+    print(f"  Reproducibility record: {args.output}")
     return 0
 
 

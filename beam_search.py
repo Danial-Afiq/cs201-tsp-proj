@@ -428,6 +428,45 @@ class _State:
     parent: _State | None
 
 
+def _initial_state(problem: RoutingProblem) -> _State:
+    return _State(problem.depot, 1 << problem.depot, 0.0, 0.0, 0.0,
+                  problem.departure_minutes, 0.0, None)
+
+
+def _extensions(problem: RoutingProblem, state: _State) -> Iterator[_State]:
+    """Every child of a prefix: each unvisited city, leaving now or after a rest.
+
+    Cities follow their stable GeoNameID order and leaving now comes first.
+    Shared with the lookahead variant so both use identical arithmetic.
+    """
+    clock = state.segment_start + state.driven_minutes
+    for following in range(len(problem.cities)):
+        if state.visited & (1 << following):
+            continue
+        leg = problem.distances_km[state.current][following]
+        # Every leg generated here ends at a scored stop, so a rest is allowed.
+        for wait in _departure_waits(clock, _drive_minutes(leg), rest_allowed=True):
+            segment_start, driven = ((state.segment_start, state.driven_minutes) if wait == 0
+                                     else (float(DAY_START_MINUTES), 0.0))
+            driven += _drive_minutes(leg)
+            yield _State(
+                following, state.visited | (1 << following), state.distance_km + leg,
+                state.risk + _arrival_risk(problem.cities[following], segment_start + driven),
+                state.elapsed_minutes + wait + _drive_minutes(leg),
+                segment_start, driven, state,
+            )
+
+
+def _closed_totals(problem: RoutingProblem, state: _State) -> tuple[float, float]:
+    """Distance and elapsed time once a complete prefix returns to the depot,
+    including any mandatory rest before the return leg."""
+    back = problem.distances_km[state.current][problem.depot]
+    back_minutes = _drive_minutes(back)
+    clock = state.segment_start + state.driven_minutes
+    return (state.distance_km + back,
+            state.elapsed_minutes + (_departure_waits(clock, back_minutes, False)[0] + back_minutes))
+
+
 @dataclass(frozen=True, slots=True)
 class BeamSearchResult:
     evaluation: TourEvaluation
@@ -454,8 +493,7 @@ def beam_search(problem: RoutingProblem, beam_width: int = 100) -> BeamSearchRes
         raise ValueError("beam_width must be a positive integer")
     started = time.perf_counter()
     size = len(problem.cities)
-    beam = [_State(problem.depot, 1 << problem.depot, 0.0, 0.0, 0.0,
-                   problem.departure_minutes, 0.0, None)]
+    beam = [_initial_state(problem)]
     serial = itertools.count()
     expanded = generated = 0
     peak = 1
@@ -463,34 +501,15 @@ def beam_search(problem: RoutingProblem, beam_width: int = 100) -> BeamSearchRes
     def candidates(frontier: list[_State], close_tour: bool) -> Iterator[tuple[float, float, int, _State]]:
         nonlocal generated
         for state in frontier:
-            clock = state.segment_start + state.driven_minutes
-            for following in range(size):  # Cities have a stable GeoNameID order.
-                if state.visited & (1 << following):
-                    continue
-                leg = problem.distances_km[state.current][following]
-                # Every leg generated here ends at a scored stop, so a rest is allowed.
-                for wait in _departure_waits(clock, _drive_minutes(leg), rest_allowed=True):
-                    segment_start, driven = ((state.segment_start, state.driven_minutes) if wait == 0
-                                             else (float(DAY_START_MINUTES), 0.0))
-                    driven += _drive_minutes(leg)
-                    arrival = segment_start + driven
-                    child = _State(
-                        following, state.visited | (1 << following), state.distance_km + leg,
-                        state.risk + _arrival_risk(problem.cities[following], arrival),
-                        state.elapsed_minutes + wait + _drive_minutes(leg),
-                        segment_start, driven, state,
-                    )
-                    ranked_distance, ranked_elapsed = child.distance_km, child.elapsed_minutes
-                    if close_tour:
-                        back = problem.distances_km[following][problem.depot]
-                        ranked_distance += back
-                        back_minutes = _drive_minutes(back)
-                        ranked_elapsed += _departure_waits(arrival, back_minutes, False)[0] + back_minutes
-                    generated += 1
-                    # Equal costs prefer the earlier clock; the serial then gives
-                    # deterministic ties without comparing state objects.
-                    yield (problem.cost(ranked_distance, child.risk, ranked_elapsed),
-                           ranked_elapsed, next(serial), child)
+            for child in _extensions(problem, state):
+                ranked_distance, ranked_elapsed = child.distance_km, child.elapsed_minutes
+                if close_tour:
+                    ranked_distance, ranked_elapsed = _closed_totals(problem, child)
+                generated += 1
+                # Equal costs prefer the earlier clock; the serial then gives
+                # deterministic ties without comparing state objects.
+                yield (problem.cost(ranked_distance, child.risk, ranked_elapsed),
+                       ranked_elapsed, next(serial), child)
 
     for depth in range(1, size):
         expanded += len(beam)
