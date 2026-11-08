@@ -14,6 +14,40 @@ The default objective is **40% distance, 20% journey time, and 40% arrival risk*
 
 The two primary approaches differ meaningfully: Beam Search explores many bounded partial routes, while 2-opt performs local search over one complete route. All implementations share the same data loader, problem model, objective, and full-tour evaluator from `beam_search.py`.
 
+## Dataset
+
+All runs use [data/processed/cities_cleaned.csv](data/processed/cities_cleaned.csv): 43 Malaysian populated places, one row per GeoNameID.
+
+**Records selected.** The lecturer-provided GeoNames file `MY.txt` (71,709 rows) is the primary source. We kept the places that have a Numbeo crime-and-safety page. Of the 48 Numbeo records, 43 could be matched reliably to a specific populated-place record (feature class `P`). Five were excluded because they do not refer to one city:
+
+| Excluded record | Why |
+| --- | --- |
+| Gombak | Matches only an `ADM2` district, not a specific populated place. |
+| Kedah, Selangor | State-level labels (`ADM1`); their scores must not be assigned to one city. |
+| Langkawi | An island or district score, not a score for the town of Kuah. |
+| Penang | Means the state or island; George Town already has its own Numbeo record. |
+
+**Columns used.** From GeoNames: `geonameid`, `name`, `latitude` and `longitude` (for Haversine distance), `feature_class`, `feature_code`, `admin1_code` (kept as text so leading zeros survive), and `population` (context only).
+
+**Filtering and preprocessing.**
+- Numbeo labels were matched against GeoNames primary, ASCII and alternate names.
+- Duplicate names were resolved by feature code, state, coordinates, population and the nearby-city distances in each Numbeo PDF. Examples: Ampang Jaya → Ampang, Bandar Penggaram → Batu Pahat, Nilai → Kampung Baharu Nilai.
+- Every Numbeo value was checked against its PDF: 48 PDFs, 288 fields, no mismatches.
+- No values were imputed, averaged, or moved between places. GeoNames coordinates and classifications are unchanged.
+
+**Supplementary and derived attributes.**
+- From Numbeo: `day_safety` and `night_safety` (walking-alone safety scores used by the model), plus `crime_index`, `numbeo_contributors`, `numbeo_last_update` and `numbeo_url` (context and data quality).
+- Derived: `day_risk = 100 - day_safety` and `night_risk = 100 - night_safety`.
+- Distances, arrival times and scaled costs are not stored. They are computed for each problem instance.
+
+**Subsets used in experiments.** The 43-row file is a source pool, not a fixed route.
+- The 9-city studies sample from the 19 Peninsular locations with at least 15 Numbeo contributors. This avoids cross-sea legs and very thin survey data.
+- The larger studies use the regional subsets listed under the primary experiments below.
+
+**Sources and attribution.**
+- Geographic data: [GeoNames](https://www.geonames.org/), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- Safety data: [Numbeo](https://www.numbeo.com/crime/). These scores are perceptions from self-selected contributors, not crime probabilities. Contributor counts vary, and update dates range from 2021 to 2026.
+
 ## Requirements
 
 - Python 3.10 or newer. Commands below use `python3`; on Windows, use `python` (or `py`) instead.
