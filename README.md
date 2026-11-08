@@ -62,12 +62,15 @@ Package the final submission as `G<X>T<X>.zip` while preserving the paths below.
 |-- beam_search.py                     # Ordinary Beam Search and shared model
 |-- two_opt.py                         # Safety-Aware 2-opt
 |-- lookahead_beam_search.py           # Optional lookahead variant
+|-- Presentation Slides.pdf            # Final presentation deck
 |-- data/
 |   `-- processed/cities_cleaned.csv   # 43 validated Malaysian locations
 |-- experiments/
 |   |-- compare_two_opt.py             # Primary experiments E1 and E2
 |   |-- lookahead_gap.py               # X-factor experiment
-|   `-- results/comparison.json        # Recorded full primary experiment
+|   `-- results/
+|       |-- comparison.json            # Recorded full primary experiment
+|       `-- lookahead_gap.json         # Recorded X-factor experiment
 |-- tests/                             # Unit and integration tests
 |-- docs/
 |   |-- beam_search.md                 # Model, algorithm, and complexity details
@@ -131,8 +134,10 @@ Allow roughly **30-45 minutes**, depending on hardware. The terminal shows a rea
 The optional study compares ordinary and Lookahead Beam Search against brute force on 200 seeded 9-city Peninsular instances. Its default beam widths are 1, 20, and 100, with departures sampled from 06:00, 10:00, 14:00, and 18:00.
 
 ```bash
-python3 experiments/lookahead_gap.py --output experiments/results/lookahead_gap.json
+python3 experiments/lookahead_gap.py --output experiments/results/lookahead_reproduction.json
 ```
+
+The submitted record is `experiments/results/lookahead_gap.json`; the command above writes to a separate file so the record is not overwritten.
 
 This is a small-instance optimality-gap study, not a third primary submission approach and not a comparison with 2-opt.
 
