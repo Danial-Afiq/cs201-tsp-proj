@@ -16,7 +16,7 @@ The two primary approaches differ meaningfully: Beam Search explores many bounde
 
 ## Requirements
 
-- Python 3.10 or newer
+- Python 3.10 or newer. Commands below use `python3`; on Windows, use `python` (or `py`) instead.
 - Python standard library only; no package installation is required
 
 Package the final submission as `G<X>T<X>.zip` while preserving the paths below. After extraction, open a terminal in the repository root and run all commands from that directory.
@@ -49,22 +49,22 @@ City names or GeoNameIDs are accepted. The depot is added automatically; omittin
 Ordinary Beam Search:
 
 ```bash
-python beam_search.py --depot "Kuala Lumpur" --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" --departure 18:00 --alpha 0.4 --beta 0.2 --beam-width 100 --output beam_run.json
+python3 beam_search.py --depot "Kuala Lumpur" --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" --departure 18:00 --alpha 0.4 --beta 0.2 --beam-width 100 --output beam_run.json
 ```
 
 Safety-Aware 2-opt:
 
 ```bash
-python two_opt.py --depot "Kuala Lumpur" --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" --departure 18:00 --alpha 0.4 --beta 0.2 --strategy best --initial nearest-neighbor --output two_opt_run.json
+python3 two_opt.py --depot "Kuala Lumpur" --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" --departure 18:00 --alpha 0.4 --beta 0.2 --strategy best --initial nearest-neighbor --output two_opt_run.json
 ```
 
 Lookahead Beam Search:
 
 ```bash
-python lookahead_beam_search.py --depot "Kuala Lumpur" --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" --departure 18:00 --alpha 0.4 --beta 0.2 --beam-width 20
+python3 lookahead_beam_search.py --depot "Kuala Lumpur" --cities "Ipoh" "Johor Bahru" "Kuantan" "Malacca" --departure 18:00 --alpha 0.4 --beta 0.2 --beam-width 20
 ```
 
-Use `python <script> --help` for every supported option.
+Use `python3 <script> --help` for every supported option.
 
 ## Reproduce the primary experiments
 
@@ -79,7 +79,7 @@ Experiments 1 and 2 share this runner because they use the same algorithms and e
 Quick validation run:
 
 ```bash
-python experiments/compare_two_opt.py --quick --output experiments/results/quick_check.json
+python3 experiments/compare_two_opt.py --quick --output experiments/results/quick_check.json
 ```
 
 `--quick` reduces the small studies to one trial and skips the 37-city and 43-city runs. It checks the pipeline; it does not reproduce the full reported evidence.
@@ -87,7 +87,7 @@ python experiments/compare_two_opt.py --quick --output experiments/results/quick
 Full reproduction:
 
 ```bash
-python experiments/compare_two_opt.py --output experiments/results/full_reproduction.json
+python3 experiments/compare_two_opt.py --output experiments/results/full_reproduction.json
 ```
 
 Allow roughly **30-45 minutes**, depending on hardware. The terminal shows a readable summary; the JSON file keeps the detailed inputs, routes, metrics, timings, and metadata. The submitted baseline record is `experiments/results/comparison.json`.
@@ -97,7 +97,7 @@ Allow roughly **30-45 minutes**, depending on hardware. The terminal shows a rea
 The optional study compares ordinary and Lookahead Beam Search against brute force on 200 seeded 9-city Peninsular instances. Its default beam widths are 1, 20, and 100, with departures sampled from 06:00, 10:00, 14:00, and 18:00.
 
 ```bash
-python experiments/lookahead_gap.py --output experiments/results/lookahead_gap.json
+python3 experiments/lookahead_gap.py --output experiments/results/lookahead_gap.json
 ```
 
 This is a small-instance optimality-gap study, not a third primary submission approach and not a comparison with 2-opt.
@@ -105,7 +105,7 @@ This is a small-instance optimality-gap study, not a third primary submission ap
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
 ```
 
 ## Assumptions and limitations
