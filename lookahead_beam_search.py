@@ -135,7 +135,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         period = "day" if is_day(visit.arrival_minutes) else "night"
         line = f"{index:>4}  {visit.city.name:<24} {format_arrival(visit.arrival_minutes):<16} {period}"
         if visit.rest is not None:
-            line = f"{line:<48}rest {format_duration(visit.wait_minutes)} h ({visit.rest})"
+            line = f"{line}  rest {format_duration(visit.wait_minutes)} h ({visit.rest})"
         print(line)
     return 0
 
