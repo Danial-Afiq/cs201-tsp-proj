@@ -67,7 +67,9 @@ Package the final submission as `G<X>T<X>.zip` while preserving the paths below.
 |-- experiments/
 |   |-- compare_two_opt.py             # Primary experiments E1 and E2
 |   |-- lookahead_gap.py               # X-factor experiment
-|   `-- results/comparison.json        # Recorded full primary experiment
+|   `-- results/
+|       |-- comparison.json            # Recorded full primary experiment
+|       `-- lookahead_gap.json         # Recorded X-factor experiment
 |-- tests/                             # Unit and integration tests
 |-- docs/
 |   |-- beam_search.md                 # Model, algorithm, and complexity details
