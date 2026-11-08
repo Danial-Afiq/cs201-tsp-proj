@@ -62,6 +62,7 @@ Package the final submission as `G<X>T<X>.zip` while preserving the paths below.
 |-- beam_search.py                     # Ordinary Beam Search and shared model
 |-- two_opt.py                         # Safety-Aware 2-opt
 |-- lookahead_beam_search.py           # Optional lookahead variant
+|-- Presentation Slides.pdf            # Final presentation deck
 |-- data/
 |   `-- processed/cities_cleaned.csv   # 43 validated Malaysian locations
 |-- experiments/
