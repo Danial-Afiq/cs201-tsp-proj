@@ -131,8 +131,10 @@ Allow roughly **30-45 minutes**, depending on hardware. The terminal shows a rea
 The optional study compares ordinary and Lookahead Beam Search against brute force on 200 seeded 9-city Peninsular instances. Its default beam widths are 1, 20, and 100, with departures sampled from 06:00, 10:00, 14:00, and 18:00.
 
 ```bash
-python3 experiments/lookahead_gap.py --output experiments/results/lookahead_gap.json
+python3 experiments/lookahead_gap.py --output experiments/results/lookahead_reproduction.json
 ```
+
+The submitted record is `experiments/results/lookahead_gap.json`; the command above writes to a separate file so the record is not overwritten.
 
 This is a small-instance optimality-gap study, not a third primary submission approach and not a comparison with 2-opt.
 
